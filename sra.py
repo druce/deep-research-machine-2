@@ -28,6 +28,7 @@ from lib.manifest import build_manifest
 # what counts as a bare artifact id (§8.4) has exactly one definition.
 from lib.provenance import DERIVED_SUBDIR, _reject_path_traversal, resolve_source
 from lib.statefile import init_state, load_state, stale_kinds
+from lib.validate import has_errors, validate
 
 # Provider credentials (FMP, FRED, OpenAI, Perplexity) live in .env at the repo
 # root. Loaded once here, at the single entry point, so every fetcher can just
@@ -290,6 +291,27 @@ def cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_validate(args: argparse.Namespace) -> int:
+    """Run the fatal validation gate and print findings as JSON (§8.4).
+
+    Exit 1 on any error-severity finding. There is deliberately no `--force`:
+    §8.4 states the gate has none, and one you can wave through is not a gate.
+    Read-only, so no lock.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+
+    if not (d / ".state.json").exists():
+        print(f"{ticker}: not initialized (run: sra.py init {ticker})", file=sys.stderr)
+        return 1
+
+    findings = validate(d, args.data_root)
+    print(json.dumps([asdict(f) for f in findings], indent=2))
+    return 1 if has_errors(findings) else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argparse parser.
 
@@ -314,6 +336,8 @@ def build_parser() -> argparse.ArgumentParser:
     add("init", cmd_init, mutating=True)
     add("status", cmd_status, mutating=False)
     add("manifest", cmd_manifest, mutating=True)
+
+    add("validate", cmd_validate, mutating=False)
 
     sp = add("show", cmd_show, mutating=False)
     sp.add_argument("id", help="artifact id (source, structured, or derived)")
