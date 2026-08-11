@@ -65,6 +65,30 @@ def test_loader_rejects_missing_section(tmp_path: Path):
         load_sections(bad)
 
 
+def test_loader_rejects_reordered_sections(tmp_path: Path):
+    """§18.1: the loader enforces file order == SECTION_IDS, not just presence."""
+    import yaml
+
+    cfg = load_sections()
+    reordered = {"risk_news": cfg["sections"]["risk_news"]}
+    for sid in SECTION_IDS:
+        if sid != "risk_news":
+            reordered[sid] = cfg["sections"][sid]
+    assert set(reordered) == set(SECTION_IDS)  # complete set, just reordered
+    assert tuple(reordered.keys()) != SECTION_IDS
+
+    bad = tmp_path / "sections.yaml"
+    bad.write_text(yaml.safe_dump({
+        "sections": reordered,
+        "section_ownership": cfg["section_ownership"],
+        "tension_analysis": cfg["tension_analysis"],
+        "claim_status_rule": cfg["claim_status_rule"],
+        "length_presets": cfg["length_presets"],
+    }, sort_keys=False))
+    with pytest.raises(ValueError, match="section order must equal"):
+        load_sections(bad)
+
+
 def test_loader_rejects_missing_subscribes_to(tmp_path: Path):
     """§18.1: subscribes_to is a required per-section key, enforced by the loader."""
     cfg = load_sections()
@@ -81,6 +105,6 @@ def test_loader_rejects_missing_subscribes_to(tmp_path: Path):
         "tension_analysis": cfg["tension_analysis"],
         "claim_status_rule": cfg["claim_status_rule"],
         "length_presets": cfg["length_presets"],
-    }))
+    }, sort_keys=False))
     with pytest.raises(ValueError, match="missing key: subscribes_to"):
         load_sections(bad)

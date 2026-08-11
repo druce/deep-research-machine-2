@@ -26,10 +26,20 @@ def load_sections(path: Path | None = None) -> dict:
     for key in REQUIRED_TOP_KEYS:
         if key not in cfg:
             raise ValueError(f"sections.yaml missing top-level key: {key}")
+    sections = cfg["sections"]
     for sid in SECTION_IDS:
-        if sid not in cfg["sections"]:
+        if sid not in sections:
             raise ValueError(f"sections.yaml missing section: {sid}")
-        section = cfg["sections"][sid]
+    # §18.1: "File order must equal lib.sections.SECTION_IDS. The loader enforces this."
+    # PyYAML's safe_load builds mapping nodes into plain dicts in document order, and
+    # Python (3.7+) dicts preserve insertion order, so this reflects the file's actual order.
+    actual_order = tuple(sections.keys())
+    if actual_order != SECTION_IDS:
+        raise ValueError(
+            f"sections.yaml section order must equal {SECTION_IDS}, got {actual_order}"
+        )
+    for sid in SECTION_IDS:
+        section = sections[sid]
         for key in REQUIRED_SECTION_KEYS:
             if key not in section:
                 raise ValueError(f"section {sid} missing key: {key}")

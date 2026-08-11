@@ -5,12 +5,15 @@ SRA6 — skills-based equity research agent with a persistent per-ticker knowled
 changes.** The command surface below is the **target** state from spec §19 — implementation
 status (what actually exists today) lives in `docs/superpowers/plans/`, not here.
 
-## Layout
-- `data/<TICKER>/` — persistent knowledge base: `sources/` (immutable bronze text, frontmatter),
-  `structured/` (bronze JSON with `_meta`), `wiki/` (silver), `charts/`, `reports/`, `.state.json`
-- `data/<TICKER>/.tmp/` — scratch for intermediate, regenerable artifacts. Never clutter the
-  reference dirs (`sources/`, `structured/`, `wiki/`) with intermediate results. Disposable —
-  can be deleted and regenerated. Constant: `lib/provenance.py:TMP_SUBDIR`.
+## Layout (medallion tree, spec §4)
+- `data/<TICKER>/` — persistent knowledge base, three layers:
+  - **bronze** (citable): `sources/` (+`sources/archive/` for superseded versions) — immutable
+    fetched text; `structured/` — fetched or reproducibly computed JSON
+  - **silver** (never citable): `derived/` (+`answers/` researcher answers, `peers/`
+    peer-selection working set and audit trail — durable, not disposable scratch); `wiki/` —
+    synthesized research knowledge
+  - **gold**: `charts/` (+`candidates/`); `reports/<run>/` (+`reports/latest -> <run>/`)
+  - plus `research/questions.json` (the question ledger, §14) and `.state.json`
 - `sra.py` — deterministic driver CLI (init/status/prefetch/...). All deterministic work goes
   here, never into skills.
 
@@ -35,7 +38,9 @@ status (what actually exists today) lives in `docs/superpowers/plans/`, not here
 | `questions T [...]` / `add-questions T ...` / `mark-answered T ...` / `invalidate T [--apply]` | research ledger |
 | `wiki-log T --entry E` / `wiki-index T` / `mark-dirty T --section S` | wiki bookkeeping |
 | `charts T [--verdict]` / `assemble T` / `snapshot T` | report rendering |
-| `migrate T` | one-shot; removed once all corpora have migrated |
+
+`migrate` (spec §26) is intentionally not implemented — approved deviation, no legacy corpora
+are being imported.
 
 Retired (do not reintroduce): `ingest`, `search`, `apply-tags`, `audit-page-citations`, `render`,
 the `sra-ingest` skill, the `sra-tagger` agent, `data/*/index/`, LanceDB, pyarrow, tiktoken.
