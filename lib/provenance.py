@@ -5,13 +5,17 @@ directories and makes every citation resolvable. See sra6-spec.md §5 (sources/)
 §6 (structured/), and §20 (lib/provenance.py module contract).
 
 This module provides the two disjoint kind sets, the two metadata dataclasses,
-`make_source_id`, and the bronze source I/O: `write_source`, `resolve_source`, and
-`read_source`. `write_structured`, `write_derived`, and `write_answer` are
-implemented in later tasks.
+`make_source_id`, the bronze source I/O (`write_source`, `resolve_source`,
+`read_source`), the producer-shape checks (`check_fetch_shape`,
+`check_compute_shape`, `check_model_shape`, `check_request_credentials`), and
+the structured/derived JSON I/O: `write_structured` (bronze, `fetch`/`compute`
+only), `write_derived` (silver, `fetch`/`compute`/`model`), and
+`read_structured`. `write_answer` is implemented in a later task.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -33,6 +37,11 @@ MODEL_KINDS = frozenset({"research_answer"})
 
 DERIVED_SUBDIR = "derived"
 SOURCE_COMPUTED = "computed"
+
+# Parameter names that must never appear inside meta.request (§5): a credential
+# is omitted entirely, never blanked or masked, so even an empty/placeholder
+# value under one of these keys is rejected.
+CREDENTIAL_PARAM_NAMES = frozenset({"apikey", "api_key", "token", "access_token"})
 
 
 @dataclass
@@ -285,3 +294,266 @@ def read_source(path: Path) -> tuple[SourceMeta, str]:
         cited_urls=list(md.get("cited_urls") or []),
     )
     return meta, post.content
+
+
+# --- producer-shape checks (§6.2) -----------------------------------------
+#
+# Each function takes a `StructuredMeta` and returns a list of human-readable
+# problem strings (empty means valid). They are reused unchanged by
+# `write_structured`/`write_derived` and, in Task 4.1, by `sra.py validate`
+# (§8.4 check 1) — a validator reads a meta off disk via `read_structured`
+# and calls the same function, so the two code paths cannot disagree about
+# what a valid artifact is.
+
+def check_fetch_shape(meta: StructuredMeta) -> list[str]:
+    """§6.2 `fetch`: id, ticker, title, source, url, fetched_at, as_of,
+    provider_tool, fetch_cmd all required and non-empty."""
+    problems: list[str] = []
+    for name in (
+        "id", "ticker", "title", "source", "url", "fetched_at", "as_of",
+        "provider_tool", "fetch_cmd",
+    ):
+        if not getattr(meta, name, None):
+            problems.append(f"fetch producer requires non-empty {name!r}")
+    return problems
+
+
+def check_compute_shape(meta: StructuredMeta) -> list[str]:
+    """§6.2 `compute`: id, ticker, title, source, derived_from (non-empty),
+    computed_at, as_of, provider_tool, fetch_cmd required; url must be ABSENT."""
+    problems: list[str] = []
+    for name in (
+        "id", "ticker", "title", "source", "computed_at", "as_of",
+        "provider_tool", "fetch_cmd",
+    ):
+        if not getattr(meta, name, None):
+            problems.append(f"compute producer requires non-empty {name!r}")
+    if not meta.derived_from:
+        problems.append("compute producer requires non-empty 'derived_from'")
+    if meta.url:
+        problems.append(f"compute producer forbids 'url' (got {meta.url!r})")
+    return problems
+
+
+def check_model_shape(meta: StructuredMeta) -> list[str]:
+    """§6.2 `model`: id, ticker, title, source, derived_from (non-empty),
+    generated_at, as_of required; url and fetch_cmd must be ABSENT."""
+    problems: list[str] = []
+    for name in ("id", "ticker", "title", "source", "generated_at", "as_of"):
+        if not getattr(meta, name, None):
+            problems.append(f"model producer requires non-empty {name!r}")
+    if not meta.derived_from:
+        problems.append("model producer requires non-empty 'derived_from'")
+    if meta.url:
+        problems.append(f"model producer forbids 'url' (got {meta.url!r})")
+    if meta.fetch_cmd:
+        problems.append(f"model producer forbids 'fetch_cmd' (got {meta.fetch_cmd!r})")
+    return problems
+
+
+_SHAPE_CHECKERS = {
+    "fetch": check_fetch_shape,
+    "compute": check_compute_shape,
+    "model": check_model_shape,
+}
+
+
+def _find_credential_keys(value: object) -> list[str]:
+    """Walk a nested dict/list structure and collect every key whose lowercased
+    form is in `CREDENTIAL_PARAM_NAMES`, at any depth (e.g. `request.params.token`
+    or a credential nested inside a list of dicts under `request.body`)."""
+    found: list[str] = []
+    if isinstance(value, dict):
+        for key, val in value.items():
+            if isinstance(key, str) and key.lower() in CREDENTIAL_PARAM_NAMES:
+                found.append(key)
+            found.extend(_find_credential_keys(val))
+    elif isinstance(value, list):
+        for item in value:
+            found.extend(_find_credential_keys(item))
+    return found
+
+
+def check_request_credentials(request: dict[str, object] | None) -> list[str]:
+    """Reject a credential parameter anywhere in `request`, nested arbitrarily
+    through dicts and lists (§5, §8.4 check 6). A credential must be omitted
+    entirely, not blanked or masked, so this fires even on an empty or
+    placeholder value."""
+    if not request:
+        return []
+    return [
+        f"request contains forbidden credential parameter {name!r} "
+        f"(§5: omit entirely, never blank or mask)"
+        for name in _find_credential_keys(request)
+    ]
+
+
+def _structured_meta_payload(meta: StructuredMeta) -> dict[str, object]:
+    """Build the `_meta` dict written into a structured/derived JSON artifact
+    (§6). Optional fields are omitted when `None`, except `derived_from`,
+    which §6's own example shows present as `[]` rather than omitted."""
+    payload: dict[str, object] = {
+        "id": meta.id,
+        "ticker": meta.ticker,
+        "producer": meta.producer,
+        "title": meta.title,
+        "source": meta.source,
+    }
+    if meta.url is not None:
+        payload["url"] = meta.url
+    if meta.request is not None:
+        payload["request"] = meta.request
+    if meta.provider_tool is not None:
+        payload["provider_tool"] = meta.provider_tool
+    if meta.fetch_cmd is not None:
+        payload["fetch_cmd"] = meta.fetch_cmd
+    if meta.fetched_at is not None:
+        payload["fetched_at"] = meta.fetched_at
+    if meta.computed_at is not None:
+        payload["computed_at"] = meta.computed_at
+    if meta.generated_at is not None:
+        payload["generated_at"] = meta.generated_at
+    payload["as_of"] = meta.as_of
+    if meta.period is not None:
+        payload["period"] = meta.period
+    if meta.currency is not None:
+        payload["currency"] = meta.currency
+    if meta.adjusted is not None:
+        payload["adjusted"] = meta.adjusted
+    payload["derived_from"] = list(meta.derived_from)
+    return payload
+
+
+def _write_structured_json(
+    target_dir: Path, target: Path, meta: StructuredMeta, data: object
+) -> None:
+    """Serialize `{"_meta": ..., "data": ...}` atomically: temp file in
+    `target_dir`, then `os.replace` (same pattern as `write_source`).
+
+    `allow_nan=False` makes `json.dump` raise `ValueError` on NaN/Infinity
+    (§6.4: nulls stay null, never zero-filled, and non-finite floats are not
+    valid JSON) instead of silently emitting an unparseable artifact; the
+    partially written temp file is discarded and `target` is never touched.
+    """
+    payload = {"_meta": _structured_meta_payload(meta), "data": data}
+    target_dir.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=target_dir, prefix=f".{meta.id}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, allow_nan=False, indent=2, sort_keys=False)
+            f.write("\n")
+        os.replace(tmp_name, target)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
+def write_structured(ticker_dir: Path, meta: StructuredMeta, data: object) -> Path:
+    """Write a bronze JSON artifact to `structured/<id>.json` (§6, §20).
+
+    Only `fetch` and `compute` producers are accepted — `model` output is
+    silver and must go through `write_derived` instead; this is the layer
+    boundary that keeps model-generated content out of a directory citations
+    resolve into. Raises `ValueError` if `meta.producer` is not `fetch` or
+    `compute`, if the producer's shape (§6.2, `check_fetch_shape`/
+    `check_compute_shape`) is unsatisfied, or if `meta.request` carries a
+    credential parameter (`check_request_credentials`).
+
+    Overwrite is ALLOWED: unlike `sources/`, structured bronze ids are
+    mutable by id (§7 detects a refetch via stamped `derived_from`
+    references, not immutability here).
+
+    The file is written atomically (temp file in `structured/`, then
+    `os.replace`), and `json.dump(..., allow_nan=False)` refuses NaN/Infinity.
+    """
+    checker = _SHAPE_CHECKERS.get(meta.producer)
+    if checker is None or meta.producer == "model":
+        raise ValueError(
+            f"write_structured only accepts producer 'fetch' or 'compute' "
+            f"(got {meta.producer!r}); model artifacts are silver — use write_derived"
+        )
+    problems = checker(meta) + check_request_credentials(meta.request)
+    if problems:
+        raise ValueError(
+            f"invalid structured artifact {meta.id!r} (producer={meta.producer!r}): "
+            + "; ".join(problems)
+        )
+    _reject_path_traversal(meta.id, "meta.id")
+
+    structured_dir = ticker_dir / "structured"
+    target = structured_dir / f"{meta.id}.json"
+    _write_structured_json(structured_dir, target, meta, data)
+    return target
+
+
+def write_derived(
+    ticker_dir: Path, meta: StructuredMeta, data: object, namespace: str | None = None
+) -> Path:
+    """Write a silver artifact to `derived/<id>.json` or
+    `derived/<namespace>/<id>.json` (§4.2, §6, §20).
+
+    Accepts `fetch`, `compute`, and `model` producers — §4.2 is explicit that
+    location, not producer shape, sets the layer: a deterministically
+    computed artifact written here is silver and non-citable even though the
+    same shape under `structured/` would be bronze. This function is kept
+    separate from `write_structured` specifically so a silver artifact can
+    never reach `structured/` by passing a subdir argument.
+
+    Raises `ValueError` if `meta.producer` is not one of `fetch`/`compute`/
+    `model`, if the producer's shape is unsatisfied, or if `meta.request`
+    carries a credential parameter. Overwrite is allowed, matching
+    `write_structured`. Written atomically with `allow_nan=False`.
+    """
+    checker = _SHAPE_CHECKERS.get(meta.producer)
+    if checker is None:
+        raise ValueError(
+            f"write_derived: unknown producer {meta.producer!r} "
+            f"(expected 'fetch', 'compute', or 'model')"
+        )
+    problems = checker(meta) + check_request_credentials(meta.request)
+    if problems:
+        raise ValueError(
+            f"invalid derived artifact {meta.id!r} (producer={meta.producer!r}): "
+            + "; ".join(problems)
+        )
+    _reject_path_traversal(meta.id, "meta.id")
+
+    derived_dir = ticker_dir / DERIVED_SUBDIR
+    if namespace:
+        _reject_path_traversal(namespace, "namespace")
+        derived_dir = derived_dir / namespace
+
+    target = derived_dir / f"{meta.id}.json"
+    _write_structured_json(derived_dir, target, meta, data)
+    return target
+
+
+def read_structured(path: Path) -> tuple[StructuredMeta, dict | list]:
+    """Read a structured/derived JSON artifact, round-tripping anything
+    `write_structured`/`write_derived` wrote. Optional fields omitted from
+    `_meta` are filled with `StructuredMeta`'s own defaults (`None`, or `[]`
+    for `derived_from`) rather than surfacing as missing-key errors — this is
+    the same round-trip contract `read_source` gives `SourceMeta`.
+    """
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    m = payload["_meta"]
+    meta = StructuredMeta(
+        id=m["id"],
+        ticker=m["ticker"],
+        producer=m["producer"],
+        title=m["title"],
+        source=m["source"],
+        as_of=m["as_of"],
+        provider_tool=m.get("provider_tool"),
+        fetch_cmd=m.get("fetch_cmd"),
+        url=m.get("url"),
+        request=m.get("request"),
+        fetched_at=m.get("fetched_at"),
+        computed_at=m.get("computed_at"),
+        generated_at=m.get("generated_at"),
+        period=m.get("period"),
+        currency=m.get("currency"),
+        adjusted=m.get("adjusted"),
+        derived_from=list(m.get("derived_from") or []),
+    )
+    return meta, payload["data"]
