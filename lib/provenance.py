@@ -329,6 +329,43 @@ def resolve_source(ticker_dir: Path, source_id: str) -> Path | None:
     return None
 
 
+def resolve_artifact(ticker_dir: Path, artifact_id: str) -> Path | None:
+    """Resolve ANY durable artifact id under one ticker directory (§9, §20).
+
+    Order, bronze before silver so a colliding id resolves citable:
+
+    1. `sources/`, then `sources/archive/` (via `resolve_source`),
+    2. `structured/<id>.json`,
+    3. `derived/<id>.json`, then `derived/<namespace>/<id>.json`.
+
+    This is the single answer to "where can an id live?", shared by
+    `stale_kinds`'s missing-artifact check (§10.1), `sra.py show` (§9), and
+    `validate`'s citation and derivation resolution (§8.4 checks 4 and 5).
+    Separate copies would drift, and the failure would be silent — a citation
+    that resolves in one place and not another.
+
+    Namespaced results are sorted, so two namespaces holding the same id
+    resolve the same way on every machine rather than by directory
+    enumeration order.
+
+    There is deliberately no fallback into `_MACRO`: callers name that ticker
+    explicitly, since structured ids are reused across tickers (§9, §12).
+    """
+    found = resolve_source(ticker_dir, artifact_id)
+    if found is not None:
+        return found
+
+    candidate = ticker_dir / "structured" / f"{artifact_id}.json"
+    if candidate.exists():
+        return candidate
+
+    derived_dir = ticker_dir / DERIVED_SUBDIR
+    candidate = derived_dir / f"{artifact_id}.json"
+    if candidate.exists():
+        return candidate
+    return next(iter(sorted(derived_dir.glob(f"*/{artifact_id}.json"))), None)
+
+
 def read_source(path: Path) -> tuple[SourceMeta, str]:
     """Read a bronze document, round-tripping anything `write_source` wrote.
 

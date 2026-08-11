@@ -18,7 +18,7 @@ import tempfile
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from lib.provenance import DERIVED_SUBDIR, resolve_source
+from lib.provenance import resolve_artifact
 
 STATE_NAME = ".state.json"
 
@@ -140,29 +140,6 @@ def record_derived(
     }
 
 
-def _artifact_exists(ticker_dir: Path, artifact_id: str) -> bool:
-    """Is `artifact_id` still on disk anywhere durable under `ticker_dir`?
-
-    Checks the three homes an id recorded in `data.*.current_ids` can have
-    (§4.2, §10.1):
-
-    - a bronze document, via `resolve_source` — which also finds it under
-      `sources/archive/`, since a superseded document is still on disk and
-      still resolvable by citations; "missing" here means gone, not aged,
-    - `structured/<id>.json` — bronze JSON,
-    - `derived/**/<id>.json` — silver JSON, reachable from `data{}` only via
-      `peers_candidates` (§7), whose gather runs as a prefetch kind.
-    """
-    if resolve_source(ticker_dir, artifact_id) is not None:
-        return True
-    if (ticker_dir / "structured" / f"{artifact_id}.json").exists():
-        return True
-    derived_dir = ticker_dir / DERIVED_SUBDIR
-    if (derived_dir / f"{artifact_id}.json").exists():
-        return True
-    return any(derived_dir.glob(f"*/{artifact_id}.json"))
-
-
 def stale_kinds(
     state: dict,
     now: datetime,
@@ -196,8 +173,14 @@ def stale_kinds(
     stale: list[str] = []
     for kind, entry in state["data"].items():
         fetched_at = datetime.fromisoformat(entry["fetched_at"])
+        # An id resolves if it is on disk anywhere durable — including
+        # `sources/archive/`, since a superseded document is still resolvable
+        # by citations; "missing" here means gone, not aged. `derived/` counts
+        # because `peers_candidates` is a prefetch data kind whose artifacts
+        # are silver (§7).
         if ticker_dir is not None and not all(
-            _artifact_exists(ticker_dir, i) for i in entry.get("current_ids", [])
+            resolve_artifact(ticker_dir, i) is not None
+            for i in entry.get("current_ids", [])
         ):
             stale.append(kind)
             continue  # already stale; a policy check cannot add it twice

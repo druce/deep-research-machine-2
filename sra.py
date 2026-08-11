@@ -26,7 +26,7 @@ from lib.lock import LockHeldError, TickerLock
 from lib.manifest import build_manifest
 # `_reject_path_traversal` is imported rather than reimplemented so the rule for
 # what counts as a bare artifact id (§8.4) has exactly one definition.
-from lib.provenance import DERIVED_SUBDIR, _reject_path_traversal, resolve_source
+from lib.provenance import _reject_path_traversal, resolve_artifact
 from lib.statefile import init_state, load_state, stale_kinds
 from lib.validate import has_errors, validate
 
@@ -216,37 +216,6 @@ def cmd_grep(args: argparse.Namespace) -> int:
 
     print(json.dumps([asdict(h) for h in hits], indent=2))
     return 0
-
-
-def resolve_artifact(ticker_dir: Path, artifact_id: str) -> Path | None:
-    """Resolve any artifact id under one ticker directory, in §9's order:
-
-    1. `sources/` then `sources/archive/` (via `resolve_source`, so an id
-       resolves current-or-archived without a flag — a citation to superseded
-       evidence must still be readable),
-    2. `structured/<id>.json`,
-    3. `derived/<id>.json`, then `derived/<namespace>/<id>.json`.
-
-    There is deliberately no fallback into `_MACRO`: the caller names that
-    ticker explicitly (§9), and falling back silently would let
-    `show PANW fred_dgs10` succeed while hiding which tree the evidence
-    actually lives in.
-
-    Returns None when the id resolves nowhere.
-    """
-    found = resolve_source(ticker_dir, artifact_id)
-    if found is not None:
-        return found
-
-    candidate = ticker_dir / "structured" / f"{artifact_id}.json"
-    if candidate.exists():
-        return candidate
-
-    derived_dir = ticker_dir / DERIVED_SUBDIR
-    candidate = derived_dir / f"{artifact_id}.json"
-    if candidate.exists():
-        return candidate
-    return next(iter(sorted(derived_dir.glob(f"*/{artifact_id}.json"))), None)
 
 
 def cmd_show(args: argparse.Namespace) -> int:
