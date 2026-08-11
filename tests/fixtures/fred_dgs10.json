@@ -1,0 +1,17 @@
+{
+  "series": {
+    "id": "DGS10",
+    "title": "Market Yield on U.S. Treasury Securities at 10-Year Constant Maturity",
+    "units": "Percent",
+    "frequency_short": "D",
+    "seasonal_adjustment": "Not Seasonally Adjusted",
+    "last_updated": "2026-07-30 15:18:03-05",
+    "realtime_start": "2026-07-30",
+    "realtime_end": "2026-07-30"
+  },
+  "observations": [
+    {"realtime_start": "2026-07-30", "realtime_end": "2026-07-30", "date": "2026-07-28", "value": "4.21"},
+    {"realtime_start": "2026-07-30", "realtime_end": "2026-07-30", "date": "2026-07-29", "value": "4.18"},
+    {"realtime_start": "2026-07-30", "realtime_end": "2026-07-30", "date": "2026-07-30", "value": "4.24"}
+  ]
+}

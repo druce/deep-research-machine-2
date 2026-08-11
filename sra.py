@@ -21,7 +21,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from lib.fetchers import fred, multpl
 from lib.fetchers.calendar import last_earnings_date
+from lib.fetchers.multpl import MULTPL_SERIES
 from lib.fetchers.registry import (
     DEFAULT_KINDS,
     FETCHERS,
@@ -57,6 +59,17 @@ TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.-]{0,9}$")
 # leading-underscore name is accepted — this is a fixed string, not a pattern,
 # precisely so `_EVIL` cannot slip through alongside it.
 MACRO_TICKER = "_MACRO"
+
+# Macro series name -> FRED series id (§12.1). The friendly name is what the CLI
+# takes; `fred_<id_lower>` is the artifact id it produces.
+FRED_SERIES: dict[str, str] = {
+    "dgs10": "DGS10",       # 10Y Treasury constant maturity
+    "dgs2": "DGS2",         # 2Y Treasury constant maturity
+    "fedfunds": "FEDFUNDS",  # effective fed funds rate
+    "cpiaucsl": "CPIAUCSL",  # CPI, all urban consumers
+    "unrate": "UNRATE",      # unemployment rate
+    "gdpc1": "GDPC1",        # real GDP
+}
 
 # §4. `_MACRO` is shared evidence rather than a research subject, so it gets
 # sources + structured only — no wiki, reports, charts or question ledger.
@@ -250,6 +263,65 @@ def cmd_prefetch(args: argparse.Namespace) -> int:
     print(json.dumps(result, indent=2))
     # warnings are informational; the exit code tracks `errors` only.
     return 0 if not result["errors"] else 2
+
+
+def cmd_prefetch_macro(args: argparse.Namespace) -> int:
+    """Gather shared macro evidence into `data/_MACRO/` (§12).
+
+    §12.3: a failed macro series is a WARNING, not a failure. Macro data is
+    context for every ticker, and one dead series must not block a build — so
+    this exits 0 with the failures reported, unlike `prefetch`.
+    """
+    macro_dir = ticker_dir(args.data_root, MACRO_TICKER)
+    if not (macro_dir / ".state.json").exists():
+        print(f"{MACRO_TICKER}: not initialized (run: sra.py init {MACRO_TICKER})",
+              file=sys.stderr)
+        return 1
+
+    known = list(FRED_SERIES) + list(MULTPL_SERIES)
+    wanted = _parse_kinds(args.series) if args.series else known
+    unknown = [s for s in wanted if s not in known]
+    if unknown:
+        print(f"unknown macro series: {', '.join(unknown)} "
+              f"(known: {', '.join(known)})", file=sys.stderr)
+        return 1
+
+    now = datetime.now(timezone.utc)
+    state = load_state(macro_dir)
+    fetched, skipped, errors, warnings = [], [], {}, {}
+
+    try:
+        with TickerLock(macro_dir, "prefetch-macro", force=args.force_lock):
+            for series in wanted:
+                key = (fred.artifact_id(series) if series in FRED_SERIES else series)
+                if args.stale_only and key in state["data"] and key not in stale_kinds(
+                        state, now, ticker_dir=macro_dir):
+                    skipped.append(series)
+                    continue
+                try:
+                    if series in FRED_SERIES:
+                        ok, _paths, err = fred.fetch_fred_series(
+                            FRED_SERIES[series], macro_dir, state, now=now)
+                    else:
+                        ok, _paths, err = multpl.fetch_multpl_series(
+                            series, macro_dir, state, now=now)
+                except Exception as exc:  # noqa: BLE001 — a fetcher bug is a warning too
+                    ok, err = False, f"{series} crashed: {exc}"
+                # State is committed after each series, as for prefetch (§7.1).
+                save_state(macro_dir, state)
+                if ok:
+                    fetched.append(series)
+                    if err:
+                        warnings[series] = err
+                else:
+                    errors[series] = err
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    print(json.dumps({"fetched": fetched, "skipped": skipped,
+                      "errors": errors, "warnings": warnings}, indent=2))
+    return 0  # §12.3: a failed macro series is a warning, never a build failure
 
 
 def cmd_manifest(args: argparse.Namespace) -> int:
@@ -487,6 +559,19 @@ def build_parser() -> argparse.ArgumentParser:
     add("init", cmd_init, mutating=True)
     add("status", cmd_status, mutating=False)
     add("manifest", cmd_manifest, mutating=True)
+
+    # prefetch-macro takes no ticker: it always targets the shared _MACRO tree.
+    sp = sub.add_parser("prefetch-macro")
+    sp.add_argument("--series", default=None,
+                    help=f"comma-separated macro series (default: all; known: "
+                         f"{', '.join(list(FRED_SERIES) + list(MULTPL_SERIES))})")
+    sp.add_argument("--stale-only", action="store_true",
+                    help="only fetch series that are stale or never fetched")
+    sp.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT,
+                    help="root of the per-ticker data tree (default: <repo>/data)")
+    sp.add_argument("--force-lock", action="store_true",
+                    help="break a lock older than 6h and proceed")
+    sp.set_defaults(fn=cmd_prefetch_macro, force_lock=False)
 
     sp = add("prefetch", cmd_prefetch, mutating=True)
     sp.add_argument("--kinds", default=None,
