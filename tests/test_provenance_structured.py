@@ -218,10 +218,76 @@ def test_write_structured_refuses_credential_carried_as_list_of_pairs(tmp_ticker
     assert not on_disk.exists()
 
 
+# A flat (name, value) pair is itself the direct value of a dict key —
+# not wrapped in an outer list/tuple of pairs. An earlier fix caught the
+# wrapped form (`[["apikey", "X"]]`) but not this shallower one, because the
+# pair-check only ran on items found while iterating an already-recursed
+# container, never on a sequence encountered as a dict's value directly.
+# These three cases exercise the three distinct arrival paths a walker can
+# take to a pair: as a dict's direct value, nested inside a list, and nested
+# two dict levels deep.
+
+def test_check_request_credentials_catches_flat_pair_as_top_level_dict_value():
+    # arrival path: dict value, directly (the reviewer's exact repro)
+    request = {"params": ["apikey", "SECRET"]}
+    assert prov.check_request_credentials(request)
+
+
+def test_check_request_credentials_catches_flat_pair_as_tuple_dict_value():
+    request = {"params": ("apikey", "SECRET")}
+    assert prov.check_request_credentials(request)
+
+
+def test_check_request_credentials_catches_flat_pair_nested_inside_list():
+    # arrival path: list element (the pair sits inside an outer list, but
+    # unlike test_check_request_credentials_catches_list_of_pairs there is
+    # only the one flat pair, not a list of pairs)
+    request = {"batches": [["apikey", "SECRET"]]}
+    assert prov.check_request_credentials(request)
+
+
+def test_check_request_credentials_catches_flat_pair_nested_inside_dict():
+    # arrival path: dict value two levels deep, not the top-level dict
+    request = {"body": {"cred": ["apikey", "SECRET"]}}
+    assert prov.check_request_credentials(request)
+
+
+def test_write_structured_refuses_credential_carried_as_flat_pair(tmp_ticker_dir):
+    # end-to-end through the real writer, not just the checker function —
+    # the reviewer's exact reproduction: meta.request = {"params": ["apikey", "SECRET"]}
+    meta = _fetch_meta(request={"params": ["apikey", "SECRET"]})
+    with pytest.raises(ValueError, match="apikey"):
+        prov.write_structured(tmp_ticker_dir, meta, {})
+    on_disk = tmp_ticker_dir / "structured" / "balance_sheet_yahoo.json"
+    assert not on_disk.exists()
+
+
 def test_check_request_credentials_pair_shape_does_not_false_positive_on_ordinary_data():
     # a 2-element list/tuple whose first element is NOT a credential name
     # must not be flagged just because it happens to look pair-shaped
     request = {"params": [["symbol", "PANW"], ["period", "quarter"]]}
+    assert prov.check_request_credentials(request) == []
+
+
+def test_check_request_credentials_flat_ordinary_pair_does_not_false_positive():
+    # same, but as a flat pair directly under a dict key (the counterpart to
+    # the flat-credential-pair tests above)
+    request = {"params": ["symbol", "PANW"]}
+    assert prov.check_request_credentials(request) == []
+
+
+def test_check_request_credentials_bare_credential_name_set_is_allowed():
+    # a set has no "first element" to check, so a bare single-element
+    # credential-name set — nothing to leak, there is no paired value — is
+    # correctly left alone rather than guessed at
+    request = {"scopes": {"apikey"}}
+    assert prov.check_request_credentials(request) == []
+
+
+def test_check_request_credentials_three_element_sequence_is_out_of_scope():
+    # a 3+-element sequence starting with a credential name is not the
+    # (name, value) shape a real client produces; deliberately not flagged
+    request = {"params": ["apikey", "SECRET", "extra"]}
     assert prov.check_request_credentials(request) == []
 
 

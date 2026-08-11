@@ -358,6 +358,23 @@ _SHAPE_CHECKERS = {
 }
 
 
+def _is_credential_pair(value: object) -> bool:
+    """Is `value` itself a `(name, value)` pair whose first element is a
+    credential parameter name? Restricted to ordered sequences (`list`/
+    `tuple`, exactly length 2) — a `set`/`frozenset` has no "first element"
+    to check, so a bare single-element credential-name set (nothing to leak;
+    e.g. `{"apikey"}`) and any other set/frozenset are correctly left alone
+    rather than guessed at. A 3+-element sequence starting with a credential
+    name is likewise out of scope: it is not the `(name, value)` shape a
+    real client produces."""
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and isinstance(value[0], str)
+        and value[0].lower() in CREDENTIAL_PARAM_NAMES
+    )
+
+
 def _find_credential_keys(value: object) -> list[str]:
     """Walk a nested structure and collect every credential parameter name
     found at any depth, in either of the two shapes a real HTTP client
@@ -366,12 +383,21 @@ def _find_credential_keys(value: object) -> list[str]:
     - a dict key whose lowercased form is in `CREDENTIAL_PARAM_NAMES`
       (e.g. `request.params.token`, or nested inside a list/tuple of dicts
       under `request.body`), or
-    - a `(name, value)` pair — a `list` or `tuple` of length 2 whose first
-      element is such a name — because both `httpx` and `requests` accept
-      `params`/`body` as a sequence of pairs (the "repeated query parameter"
-      form), and `json.dump` serializes a tuple as a JSON array indistinguishable
-      from a list, so a credential recorded that way must be caught the same
-      as a dict key.
+    - a `(name, value)` pair (`_is_credential_pair`) — because both `httpx`
+      and `requests` accept `params`/`body` as a sequence of pairs (the
+      "repeated query parameter" form), and `json.dump` serializes a tuple
+      as a JSON array indistinguishable from a list, so a credential
+      recorded that way must be caught the same as a dict key.
+
+    The pair-check is applied to every sequence this function VISITS, not
+    only to items encountered while already iterating a recursed container —
+    so a flat pair reached as a dict's direct value (`{"params": ["apikey",
+    "SECRET"]}`), as a list element, or at the top level are all treated
+    identically. An earlier version checked the pair-shape only from inside
+    the `elif` branch's iteration, which caught a pair nested inside another
+    list but missed the flat case: the walker never asked "is this container
+    itself a pair?" before recursing into it, only "is this item, found
+    while iterating, a pair?".
 
     Recurses into `dict`, `list`, `tuple`, `set`, and `frozenset` alike — a
     tuple is not just a list-lookalike here, it is the literal shape
@@ -384,14 +410,9 @@ def _find_credential_keys(value: object) -> list[str]:
                 found.append(key)
             found.extend(_find_credential_keys(val))
     elif isinstance(value, (list, tuple, set, frozenset)):
+        if _is_credential_pair(value):
+            found.append(value[0])
         for item in value:
-            if (
-                isinstance(item, (list, tuple))
-                and len(item) == 2
-                and isinstance(item[0], str)
-                and item[0].lower() in CREDENTIAL_PARAM_NAMES
-            ):
-                found.append(item[0])
             found.extend(_find_credential_keys(item))
     return found
 
