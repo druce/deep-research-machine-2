@@ -237,3 +237,57 @@ def test_read_source_fills_defaults_for_omitted_optional_keys(tmp_ticker_dir):
 
 def test_resolve_source_returns_none_when_neither_exists(tmp_ticker_dir):
     assert prov.resolve_source(tmp_ticker_dir, "2026-08-11_news") is None
+
+
+# --- write_answer ---------------------------------------------------------
+#
+# write_answer is the sanctioned home for model-synthesized research answers
+# (§1.2, §5 MODEL_KINDS, §20). BRONZE_KINDS/MODEL_KINDS are disjoint, so
+# write_source's symmetric rejection of a MODEL_KINDS kind is already covered
+# by test_source_archiving.py::test_write_rejects_model_kind and is not
+# duplicated here.
+
+def _answer_meta(sid, **overrides):
+    fields = dict(
+        id=sid, ticker="PANW", kind="research_answer", source="model",
+        url="", fetched_at="2026-08-11T12:00:00Z", as_of="2026-08-11",
+        title="R1: FCF conversion drivers", fetch_tool="skill:sra-researcher",
+        fetch_cmd="uv run python sra.py answer PANW --question fcf-drivers",
+        cited_urls=["https://ir.paloaltonetworks.com/example"],
+    )
+    fields.update(overrides)
+    return prov.SourceMeta(**fields)
+
+
+def test_write_answer_accepts_research_answer_kind_and_location(tmp_ticker_dir):
+    meta = _answer_meta("2026-08-11_research_answer_r1-fcf")
+    path = prov.write_answer(tmp_ticker_dir, meta, "answer body")
+    assert path == tmp_ticker_dir / "derived" / "answers" / "2026-08-11_research_answer_r1-fcf.md"
+    assert path.exists()
+
+
+def test_write_answer_rejects_bronze_kind(tmp_ticker_dir):
+    meta = _answer_meta("2026-08-11_news", kind="news")
+    with pytest.raises(ValueError):
+        prov.write_answer(tmp_ticker_dir, meta, "answer body")
+
+
+def test_write_answer_overwrite_raises(tmp_ticker_dir):
+    meta = _answer_meta("2026-08-11_research_answer_r1-fcf")
+    prov.write_answer(tmp_ticker_dir, meta, "v1")
+    with pytest.raises(FileExistsError):
+        prov.write_answer(tmp_ticker_dir, meta, "v2")
+
+
+def test_write_answer_rejects_path_traversal_id(tmp_ticker_dir):
+    meta = _answer_meta("../../etc/passwd")
+    with pytest.raises(ValueError):
+        prov.write_answer(tmp_ticker_dir, meta, "answer body")
+
+
+def test_read_source_round_trips_answer_including_cited_urls(tmp_ticker_dir):
+    meta = _answer_meta("2026-08-11_research_answer_r1-fcf")
+    path = prov.write_answer(tmp_ticker_dir, meta, "answer body")
+    read_meta, body = prov.read_source(path)
+    assert read_meta == meta
+    assert body == "answer body"

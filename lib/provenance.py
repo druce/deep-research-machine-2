@@ -6,11 +6,11 @@ directories and makes every citation resolvable. See sra6-spec.md §5 (sources/)
 
 This module provides the two disjoint kind sets, the two metadata dataclasses,
 `make_source_id`, the bronze source I/O (`write_source`, `resolve_source`,
-`read_source`), the producer-shape checks (`check_fetch_shape`,
-`check_compute_shape`, `check_model_shape`, `check_request_credentials`), and
-the structured/derived JSON I/O: `write_structured` (bronze, `fetch`/`compute`
-only), `write_derived` (silver, `fetch`/`compute`/`model`), and
-`read_structured`. `write_answer` is implemented in a later task.
+`read_source`), the silver research-answer writer (`write_answer`), the
+producer-shape checks (`check_fetch_shape`, `check_compute_shape`,
+`check_model_shape`, `check_request_credentials`), and the structured/derived
+JSON I/O: `write_structured` (bronze, `fetch`/`compute` only), `write_derived`
+(silver, `fetch`/`compute`/`model`), and `read_structured`.
 """
 
 from __future__ import annotations
@@ -145,6 +145,52 @@ def make_source_id(kind: str, on: date, topic: str | None = None, *, ticker_dir:
     return f"{base}_{n}"
 
 
+def _write_source_md(target_dir: Path, meta: SourceMeta, body: str) -> Path:
+    """Serialize a `SourceMeta` + body to frontmatter markdown and write it
+    atomically to `target_dir / f"{meta.id}.md"` (temp file in `target_dir`,
+    then `os.replace` — the same pattern `_write_structured_json` uses for
+    JSON). Shared by `write_source` and `write_answer`, which differ only in
+    which kind set they check, which directory they target, and whether
+    archiving applies — none of which touches serialization or atomicity, so
+    both are kept here in one place rather than duplicated.
+
+    Optional fields (`request`, `supersedes`, `cited_urls`) are omitted from
+    frontmatter when falsy, matching §5's example of a bare document.
+    """
+    metadata: dict[str, object] = {
+        "id": meta.id,
+        "ticker": meta.ticker,
+        "kind": meta.kind,
+        "source": meta.source,
+        "url": meta.url,
+        "fetched_at": meta.fetched_at,
+        "as_of": meta.as_of,
+        "title": meta.title,
+        "fetch_tool": meta.fetch_tool,
+        "fetch_cmd": meta.fetch_cmd,
+    }
+    if meta.request:
+        metadata["request"] = meta.request
+    if meta.supersedes:
+        metadata["supersedes"] = meta.supersedes
+    if meta.cited_urls:
+        metadata["cited_urls"] = meta.cited_urls
+
+    post = frontmatter.Post(body, **metadata)
+    text = frontmatter.dumps(post, sort_keys=False) + "\n"
+
+    target = target_dir / f"{meta.id}.md"
+    fd, tmp_name = tempfile.mkstemp(dir=target_dir, prefix=f".{meta.id}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp_name, target)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+    return target
+
+
 def write_source(
     ticker_dir: Path, meta: SourceMeta, body: str, *, today: date | None = None
 ) -> Path:
@@ -210,37 +256,51 @@ def write_source(
         # else: already archived by an earlier attempt, or never existed —
         # idempotent no-op (§7.1); the write below still proceeds.
 
-    metadata: dict[str, object] = {
-        "id": meta.id,
-        "ticker": meta.ticker,
-        "kind": meta.kind,
-        "source": meta.source,
-        "url": meta.url,
-        "fetched_at": meta.fetched_at,
-        "as_of": meta.as_of,
-        "title": meta.title,
-        "fetch_tool": meta.fetch_tool,
-        "fetch_cmd": meta.fetch_cmd,
-    }
-    if meta.request:
-        metadata["request"] = meta.request
-    if meta.supersedes:
-        metadata["supersedes"] = meta.supersedes
-    if meta.cited_urls:
-        metadata["cited_urls"] = meta.cited_urls
+    return _write_source_md(sources_dir, meta, body)
 
-    post = frontmatter.Post(body, **metadata)
-    text = frontmatter.dumps(post, sort_keys=False) + "\n"
 
-    fd, tmp_name = tempfile.mkstemp(dir=sources_dir, prefix=f".{meta.id}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.replace(tmp_name, target)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
-    return target
+def write_answer(ticker_dir: Path, meta: SourceMeta, body: str) -> Path:
+    """Write a silver research answer to `derived/answers/<id>.md` (§1.2, §5
+    MODEL_KINDS, §8.1, §20).
+
+    This is the sanctioned home for model-synthesized research answers — the
+    historical defect §1.2 documents is a `research_answer` landing in
+    `sources/`, getting indexed and cited exactly like a filing, so a report
+    citation could terminate at model-generated text rather than evidence.
+    Routing every `MODEL_KINDS` write through here, and only through here,
+    keeps that from happening again.
+
+    Raises `ValueError` if `meta.kind` is not in `MODEL_KINDS` (this is where
+    `BRONZE_KINDS` are rejected — a bronze kind never lands under
+    `derived/answers/`; use `write_source` instead), or if `meta.id` is not a
+    bare filename component (§8.4).
+
+    Raises `FileExistsError` on overwrite. Unlike `write_source`, there is no
+    archive-on-supersede path: an answer is an audit record of what a
+    researcher produced in a given round, and answers are never superseded,
+    only ever added to.
+
+    Uses the same frontmatter serialization and atomic-write helper as
+    `write_source` (`_write_source_md`), so `read_source` reads an answer
+    back unchanged, `cited_urls` included.
+    """
+    if meta.kind not in MODEL_KINDS:
+        raise ValueError(
+            f"write_answer rejects kind {meta.kind!r}: not in MODEL_KINDS "
+            f"(did you mean write_source for a BRONZE_KINDS artifact?)"
+        )
+    _reject_path_traversal(meta.id, "meta.id")
+
+    answers_dir = ticker_dir / DERIVED_SUBDIR / "answers"
+    target = answers_dir / f"{meta.id}.md"
+    if target.exists():
+        raise FileExistsError(
+            f"answer id already exists (answers are audit records, never "
+            f"overwritten): {meta.id}"
+        )
+
+    answers_dir.mkdir(parents=True, exist_ok=True)
+    return _write_source_md(answers_dir, meta, body)
 
 
 def resolve_source(ticker_dir: Path, source_id: str) -> Path | None:
