@@ -93,6 +93,14 @@ def test_structured_meta_derived_from_default_not_shared():
         # crash and must produce an empty string, not a stray separator
         ("!!!", ""),
         ("ソニー", ""),
+        # a literal hyphen adjacent to characters that get replaced survives
+        # the first substitution untouched (hyphen is in the allowed class),
+        # so the surrounding replaced-chars-turned-hyphens form a run next to
+        # it (e.g. " -- " -> "----") that only the separate -{2,} collapse
+        # step catches; the other four cases above never produce such a run,
+        # since none of them puts a literal "-" next to disallowed chars, so
+        # this case is required to keep that collapse step covered
+        ("SASE -- Win Rates", "sase-win-rates"),
     ],
 )
 def test_slug_table(text, expected):
