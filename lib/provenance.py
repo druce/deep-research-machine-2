@@ -12,8 +12,10 @@ implemented in later tasks.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -93,6 +95,22 @@ def _archived_id(filename: str) -> str:
     return re.sub(r"_\d{4}-\d{2}-\d{2}$", "", Path(filename).stem)
 
 
+def _reject_path_traversal(value: str, field_name: str) -> None:
+    """Guard an id/supersedes value that will be interpolated into a path under
+    `sources/` or `sources/archive/` (§8.4 requires path containment
+    structurally). `make_source_id` only ever produces bare filename
+    components, so this never fires on that path; it exists for callers that
+    construct `SourceMeta` by hand.
+
+    Rejects an empty value, any path separator, and any `..` segment.
+    """
+    if not value or "/" in value or "\\" in value or ".." in value:
+        raise ValueError(
+            f"{field_name} {value!r} must be a bare filename component "
+            f"(no path separators or '..')"
+        )
+
+
 def make_source_id(kind: str, on: date, topic: str | None = None, *, ticker_dir: Path) -> str:
     """Allocate a source id, picking the smallest free `_<n>` suffix against
     sources/ and sources/archive/ together so an id is never reused after
@@ -124,31 +142,48 @@ def write_source(
     """Write a bronze document to `sources/<id>.md` (§5, §20).
 
     Raises `ValueError` if `meta.kind` is not in `BRONZE_KINDS` (this is where
-    `MODEL_KINDS` are rejected — model output never lands under `sources/`).
-    Raises `FileExistsError` if `sources/<id>.md` already exists: sources are
-    immutable, so a refresh always writes a new id rather than overwriting.
+    `MODEL_KINDS` are rejected — model output never lands under `sources/`),
+    or if `meta.id`/`meta.supersedes` is not a bare filename component (§8.4).
+    Raises `FileExistsError` if the id already exists anywhere — currently in
+    `sources/` or already archived under `sources/archive/`: sources are
+    immutable, so a refresh always writes a new id rather than overwriting,
+    and an id is never reused after archiving (§5's "ids are unique across
+    both directories").
 
     If `meta.supersedes` names a source currently in `sources/`, that file is
     moved (not rewritten) to `sources/archive/<old-id>_<today>.md` before the
     new file is written, where `today` defaults to `date.today()` and is
     injectable for deterministic tests. The move preserves the old file's
     bytes exactly, frontmatter included (§5's "byte-identical" requirement).
+    Raises `FileExistsError` if that archive destination is already occupied
+    — the archive is the only copy of superseded evidence, so this never
+    overwrites silently.
 
     If `meta.supersedes` names a source that is no longer in `sources/`
     (already archived by an earlier attempt, or never existed), archiving is
     a silent no-op and the write proceeds — this makes a half-completed
     retry safe to re-run (§7.1).
+
+    The file itself is written atomically (temp file in `sources/`, then
+    `os.replace`), so a crash mid-write cannot leave a truncated file
+    occupying the id forever.
     """
     if meta.kind not in BRONZE_KINDS:
         raise ValueError(
             f"write_source rejects kind {meta.kind!r}: not in BRONZE_KINDS "
             f"(did you mean write_answer for a MODEL_KINDS artifact?)"
         )
+    _reject_path_traversal(meta.id, "meta.id")
+    if meta.supersedes:
+        _reject_path_traversal(meta.supersedes, "meta.supersedes")
 
     sources_dir = ticker_dir / "sources"
     target = sources_dir / f"{meta.id}.md"
-    if target.exists():
-        raise FileExistsError(f"source already exists (sources are immutable): {target}")
+    if target.exists() or resolve_source(ticker_dir, meta.id) is not None:
+        raise FileExistsError(
+            f"source id already exists (sources are immutable, ids are unique "
+            f"across sources/ and sources/archive/): {meta.id}"
+        )
 
     if meta.supersedes:
         old_path = sources_dir / f"{meta.supersedes}.md"
@@ -157,6 +192,11 @@ def write_source(
             archive_dir.mkdir(parents=True, exist_ok=True)
             stamp = (today or date.today()).isoformat()
             archived_path = archive_dir / f"{meta.supersedes}_{stamp}.md"
+            if archived_path.exists():
+                raise FileExistsError(
+                    f"archive destination already exists, refusing to overwrite "
+                    f"superseded evidence: {archived_path}"
+                )
             shutil.move(str(old_path), str(archived_path))
         # else: already archived by an earlier attempt, or never existed —
         # idempotent no-op (§7.1); the write below still proceeds.
@@ -182,7 +222,15 @@ def write_source(
 
     post = frontmatter.Post(body, **metadata)
     text = frontmatter.dumps(post, sort_keys=False) + "\n"
-    target.write_text(text, encoding="utf-8")
+
+    fd, tmp_name = tempfile.mkstemp(dir=sources_dir, prefix=f".{meta.id}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp_name, target)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
     return target
 
 
