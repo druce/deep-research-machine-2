@@ -58,10 +58,8 @@ dev = ["pytest>=8.0", "setuptools>=68", "wheel"]
 markers = ["integration: hits live network APIs"]
 testpaths = ["tests"]
 
-# Discover lib and every subpackage (lib.fetchers especially) so installed builds
-# ship them. The prior `packages = ["lib"]` listed only the top level, so a wheel
-# omitted lib/fetchers/ entirely and `import lib.fetchers.prices` failed once
-# installed. tests/test_packaging.py builds a wheel and asserts the subpackage lands.
+# Use lib* to discover lib and all subpackages (lib.fetchers, lib.charts, lib.render)
+# so they ship in installed builds.
 [tool.setuptools.packages.find]
 include = ["lib*"]
 namespaces = false
