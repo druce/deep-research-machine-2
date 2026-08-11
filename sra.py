@@ -21,6 +21,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from lib.lock import LockHeldError, TickerLock
+from lib.manifest import build_manifest
 from lib.statefile import init_state, load_state, stale_kinds
 
 # Provider credentials (FMP, FRED, OpenAI, Perplexity) live in .env at the repo
@@ -152,6 +153,32 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_manifest(args: argparse.Namespace) -> int:
+    """Regenerate `sources/00_manifest.md` and print its path (§5.1, §9).
+
+    Mutating (it writes into `sources/`), so it takes the lock — a manifest
+    built while a prefetch is mid-write would catalog a half-written tree.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+
+    if not (d / ".state.json").exists():
+        print(f"{ticker}: not initialized (run: sra.py init {ticker})", file=sys.stderr)
+        return 1
+
+    try:
+        with TickerLock(d, "manifest", force=args.force_lock):
+            path = build_manifest(d)
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    print(path)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argparse parser.
 
@@ -175,6 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     add("init", cmd_init, mutating=True)
     add("status", cmd_status, mutating=False)
+    add("manifest", cmd_manifest, mutating=True)
     return p
 
 
