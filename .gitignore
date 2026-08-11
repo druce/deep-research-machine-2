@@ -1,0 +1,11 @@
+data/*
+!data/.gitkeep
+.env
+__pycache__/
+*.pyc
+.venv/
+.claude/settings.local.json
+.mcp.json
+.DS_Store
+.ruff_cache/
+.pytest_cache/

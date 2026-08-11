@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sra6"
+version = "0.1.0"
+description = "Stock Research Agent v6 - skills-based equity research with persistent per-ticker knowledge base"
+requires-python = ">=3.12"
+dependencies = [
+    "python-frontmatter>=1.1",
+    "pyyaml>=6.0",
+    "yfinance>=0.2.40",
+    "pandas>=2.0",
+    "numpy>=1.26",
+    # Needs the ta-lib C library on the machine (macOS: `brew install ta-lib`); the
+    # wheel build reads TA_INCLUDE_PATH / TA_LIBRARY_PATH when it is not on the
+    # default search path. lib/fetchers/technical.py imports it lazily so the rest
+    # of the CLI still runs where the C library is absent.
+    "ta-lib>=0.6.8",
+    # plotly>=6.1 is the floor for kaleido 1.x's write_image path (sra5's proven
+    # working pair is plotly 6.6.0 + kaleido 1.2.0). kaleido 1.x drives a headless
+    # Chrome; lib/fetchers/technical.py renders best-effort so a missing runtime
+    # only skips the chart.
+    "plotly>=6.1",
+    "kaleido>=1.2.0",
+    "python-dotenv>=1.0",
+    "jinja2>=3.1",
+    # Pinned <2: mcp 2.0 dropped the Server.list_tools()/call_tool() decorator API
+    # that lib/mcp_proxy.py is built on (carried over from sra5, which runs 1.27).
+    "mcp>=1.26.0,<2",
+    # yfinance's Ticker.earnings_dates scrapes an HTML table through pandas.read_html,
+    # which needs an lxml parser (lib/fetchers/calendar.py's default provider).
+    "lxml>=5.0",
+    # lib/fetchers/peers.py calls FMP's REST API directly (dropping sra5's heavyweight
+    # openbb dependency); imported lazily so the module stays importable offline.
+    "httpx>=0.28",
+    # lib/fetchers/wikipedia.py ports sra5's search chain; imported lazily so the
+    # module stays importable (and the tests collectable) without the package.
+    "wikipedia>=1.4.0",
+    # lib/fetchers/edgar.py drives SEC EDGAR through edgartools. Imported lazily:
+    # `edgar` sets a global SEC identity and creates local state under ~/.edgar on
+    # use, which no offline test (nor `import sra`) should ever depend on.
+    "edgartools>=5.16",
+    # lib/fetchers/perplexity.py talks to Perplexity's OpenAI-compatible chat API
+    # through this client (base_url override); also used for embeddings.
+    "openai>=2.21",
+    # HTML -> PDF rendering for reports (needs cairo/pango system libraries).
+    "weasyprint>=62",
+]
+
+[dependency-groups]
+# setuptools/wheel are the build backend; kept in dev so tests/test_packaging.py can
+# drive an in-process wheel build offline (setuptools is not otherwise in the venv).
+dev = ["pytest>=8.0", "setuptools>=68", "wheel"]
+
+[tool.pytest.ini_options]
+markers = ["integration: hits live network APIs"]
+testpaths = ["tests"]
+
+# Discover lib and every subpackage (lib.fetchers especially) so installed builds
+# ship them. The prior `packages = ["lib"]` listed only the top level, so a wheel
+# omitted lib/fetchers/ entirely and `import lib.fetchers.prices` failed once
+# installed. tests/test_packaging.py builds a wheel and asserts the subpackage lands.
+[tool.setuptools.packages.find]
+include = ["lib*"]
+namespaces = false
