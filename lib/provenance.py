@@ -359,17 +359,39 @@ _SHAPE_CHECKERS = {
 
 
 def _find_credential_keys(value: object) -> list[str]:
-    """Walk a nested dict/list structure and collect every key whose lowercased
-    form is in `CREDENTIAL_PARAM_NAMES`, at any depth (e.g. `request.params.token`
-    or a credential nested inside a list of dicts under `request.body`)."""
+    """Walk a nested structure and collect every credential parameter name
+    found at any depth, in either of the two shapes a real HTTP client
+    produces:
+
+    - a dict key whose lowercased form is in `CREDENTIAL_PARAM_NAMES`
+      (e.g. `request.params.token`, or nested inside a list/tuple of dicts
+      under `request.body`), or
+    - a `(name, value)` pair — a `list` or `tuple` of length 2 whose first
+      element is such a name — because both `httpx` and `requests` accept
+      `params`/`body` as a sequence of pairs (the "repeated query parameter"
+      form), and `json.dump` serializes a tuple as a JSON array indistinguishable
+      from a list, so a credential recorded that way must be caught the same
+      as a dict key.
+
+    Recurses into `dict`, `list`, `tuple`, `set`, and `frozenset` alike — a
+    tuple is not just a list-lookalike here, it is the literal shape
+    `params=list(client_params)` or `params=tuple(...)` produces.
+    """
     found: list[str] = []
     if isinstance(value, dict):
         for key, val in value.items():
             if isinstance(key, str) and key.lower() in CREDENTIAL_PARAM_NAMES:
                 found.append(key)
             found.extend(_find_credential_keys(val))
-    elif isinstance(value, list):
+    elif isinstance(value, (list, tuple, set, frozenset)):
         for item in value:
+            if (
+                isinstance(item, (list, tuple))
+                and len(item) == 2
+                and isinstance(item[0], str)
+                and item[0].lower() in CREDENTIAL_PARAM_NAMES
+            ):
+                found.append(item[0])
             found.extend(_find_credential_keys(item))
     return found
 
@@ -424,17 +446,20 @@ def _structured_meta_payload(meta: StructuredMeta) -> dict[str, object]:
     return payload
 
 
-def _write_structured_json(
-    target_dir: Path, target: Path, meta: StructuredMeta, data: object
-) -> None:
-    """Serialize `{"_meta": ..., "data": ...}` atomically: temp file in
-    `target_dir`, then `os.replace` (same pattern as `write_source`).
+def _write_structured_json(target_dir: Path, meta: StructuredMeta, data: object) -> Path:
+    """Serialize `{"_meta": ..., "data": ...}` atomically to
+    `target_dir / f"{meta.id}.json"`: temp file in `target_dir`, then
+    `os.replace` (same pattern as `write_source`). The target path is derived
+    here, from `target_dir` and `meta.id` alone, rather than accepted as a
+    second caller-supplied argument, so the directory a caller mkdir'd and
+    the file it ends up writing into cannot drift apart.
 
     `allow_nan=False` makes `json.dump` raise `ValueError` on NaN/Infinity
     (§6.4: nulls stay null, never zero-filled, and non-finite floats are not
     valid JSON) instead of silently emitting an unparseable artifact; the
     partially written temp file is discarded and `target` is never touched.
     """
+    target = target_dir / f"{meta.id}.json"
     payload = {"_meta": _structured_meta_payload(meta), "data": data}
     target_dir.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=target_dir, prefix=f".{meta.id}.", suffix=".tmp")
@@ -446,6 +471,7 @@ def _write_structured_json(
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
         raise
+    return target
 
 
 def write_structured(ticker_dir: Path, meta: StructuredMeta, data: object) -> Path:
@@ -481,9 +507,7 @@ def write_structured(ticker_dir: Path, meta: StructuredMeta, data: object) -> Pa
     _reject_path_traversal(meta.id, "meta.id")
 
     structured_dir = ticker_dir / "structured"
-    target = structured_dir / f"{meta.id}.json"
-    _write_structured_json(structured_dir, target, meta, data)
-    return target
+    return _write_structured_json(structured_dir, meta, data)
 
 
 def write_derived(
@@ -523,9 +547,7 @@ def write_derived(
         _reject_path_traversal(namespace, "namespace")
         derived_dir = derived_dir / namespace
 
-    target = derived_dir / f"{meta.id}.json"
-    _write_structured_json(derived_dir, target, meta, data)
-    return target
+    return _write_structured_json(derived_dir, meta, data)
 
 
 def read_structured(path: Path) -> tuple[StructuredMeta, dict | list]:
@@ -536,24 +558,34 @@ def read_structured(path: Path) -> tuple[StructuredMeta, dict | list]:
     the same round-trip contract `read_source` gives `SourceMeta`.
     """
     payload = json.loads(path.read_text(encoding="utf-8"))
-    m = payload["_meta"]
-    meta = StructuredMeta(
-        id=m["id"],
-        ticker=m["ticker"],
-        producer=m["producer"],
-        title=m["title"],
-        source=m["source"],
-        as_of=m["as_of"],
-        provider_tool=m.get("provider_tool"),
-        fetch_cmd=m.get("fetch_cmd"),
-        url=m.get("url"),
-        request=m.get("request"),
-        fetched_at=m.get("fetched_at"),
-        computed_at=m.get("computed_at"),
-        generated_at=m.get("generated_at"),
-        period=m.get("period"),
-        currency=m.get("currency"),
-        adjusted=m.get("adjusted"),
-        derived_from=list(m.get("derived_from") or []),
-    )
-    return meta, payload["data"]
+    try:
+        m = payload["_meta"]
+        meta = StructuredMeta(
+            id=m["id"],
+            ticker=m["ticker"],
+            producer=m["producer"],
+            title=m["title"],
+            source=m["source"],
+            as_of=m["as_of"],
+            provider_tool=m.get("provider_tool"),
+            fetch_cmd=m.get("fetch_cmd"),
+            url=m.get("url"),
+            request=m.get("request"),
+            fetched_at=m.get("fetched_at"),
+            computed_at=m.get("computed_at"),
+            generated_at=m.get("generated_at"),
+            period=m.get("period"),
+            currency=m.get("currency"),
+            adjusted=m.get("adjusted"),
+            derived_from=list(m.get("derived_from") or []),
+        )
+        data = payload["data"]
+    except KeyError as exc:
+        # A malformed on-disk artifact (hand-edited, truncated, or missing
+        # `_meta`/`data` entirely) must not surface as a bare KeyError:
+        # Task 4.1's `validate` (§8.4) is deterministic and fatal WITH A
+        # MESSAGE, and this is the one place that message gets attached.
+        raise ValueError(
+            f"malformed structured artifact {path}: missing required key {exc}"
+        ) from exc
+    return meta, data

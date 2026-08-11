@@ -185,6 +185,46 @@ def test_check_request_credentials_rejects_empty_placeholder_value():
     assert problems
 
 
+# httpx/requests both accept `params`/`body` as a sequence of (name, value)
+# pairs (the "repeated query parameter" form), and json.dump serializes a
+# tuple as a JSON array indistinguishable from a list — so a credential
+# recorded that way must be caught exactly like a dict key.
+
+def test_check_request_credentials_catches_list_of_pairs():
+    request = {"params": [["apikey", "SECRET"], ["symbol", "PANW"]]}
+    problems = prov.check_request_credentials(request)
+    assert problems
+
+
+def test_check_request_credentials_catches_tuple_of_pairs():
+    request = {"params": (("apikey", "SECRET"),)}
+    problems = prov.check_request_credentials(request)
+    assert problems
+
+
+def test_check_request_credentials_catches_tuple_containing_dict():
+    # a tuple (not a list) wrapping a dict — the walk must recurse into
+    # tuples at all, not just detect the pair-of-strings shape
+    request = {"params": ({"apikey": "SECRET"},)}
+    problems = prov.check_request_credentials(request)
+    assert problems
+
+
+def test_write_structured_refuses_credential_carried_as_list_of_pairs(tmp_ticker_dir):
+    meta = _fetch_meta(request={"params": [["apikey", "SECRET"], ["symbol", "PANW"]]})
+    with pytest.raises(ValueError, match="apikey"):
+        prov.write_structured(tmp_ticker_dir, meta, {})
+    on_disk = tmp_ticker_dir / "structured" / "balance_sheet_yahoo.json"
+    assert not on_disk.exists()
+
+
+def test_check_request_credentials_pair_shape_does_not_false_positive_on_ordinary_data():
+    # a 2-element list/tuple whose first element is NOT a credential name
+    # must not be flagged just because it happens to look pair-shaped
+    request = {"params": [["symbol", "PANW"], ["period", "quarter"]]}
+    assert prov.check_request_credentials(request) == []
+
+
 def test_check_request_credentials_none_or_empty_request_is_clean():
     assert prov.check_request_credentials(None) == []
     assert prov.check_request_credentials({}) == []
@@ -305,16 +345,31 @@ def test_write_derived_no_namespace_writes_flat_under_derived(tmp_ticker_dir):
     meta = _model_meta(id="research_answer_1")
     path = prov.write_derived(tmp_ticker_dir, meta, {"answer": "..."})
     assert path == tmp_ticker_dir / "derived" / "research_answer_1.json"
+    # a writer that computed the right path but skipped writing would still
+    # pass the assertion above -- confirm the file actually landed, with
+    # the right content, not just that the path arithmetic is correct
+    assert path.exists()
+    got_meta, data = prov.read_structured(path)
+    assert got_meta.id == "research_answer_1"
+    assert data == {"answer": "..."}
 
 
 def test_write_derived_accepts_fetch_and_compute_too(tmp_ticker_dir):
-    fetch_path = prov.write_derived(tmp_ticker_dir, _fetch_meta(id="scratch_fetch"), {})
+    fetch_path = prov.write_derived(tmp_ticker_dir, _fetch_meta(id="scratch_fetch"), {"a": 1})
     assert fetch_path == tmp_ticker_dir / "derived" / "scratch_fetch.json"
+    assert fetch_path.exists()
+    fetch_got_meta, fetch_data = prov.read_structured(fetch_path)
+    assert fetch_got_meta.producer == "fetch"
+    assert fetch_data == {"a": 1}
 
     compute_path = prov.write_derived(
-        tmp_ticker_dir, _compute_meta(id="scratch_compute"), {}, namespace="peers"
+        tmp_ticker_dir, _compute_meta(id="scratch_compute"), {"b": 2}, namespace="peers"
     )
     assert compute_path == tmp_ticker_dir / "derived" / "peers" / "scratch_compute.json"
+    assert compute_path.exists()
+    compute_got_meta, compute_data = prov.read_structured(compute_path)
+    assert compute_got_meta.producer == "compute"
+    assert compute_data == {"b": 2}
 
 
 def test_write_derived_compute_shape_under_derived_is_still_shape_checked(tmp_ticker_dir):
@@ -393,3 +448,69 @@ def test_write_structured_derived_from_written_as_empty_list_not_omitted(tmp_tic
     path = prov.write_structured(tmp_ticker_dir, _fetch_meta(), {})
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert raw["_meta"]["derived_from"] == []
+
+
+# --- read_structured: malformed artifact -> ValueError, not bare KeyError --
+
+def test_read_structured_missing_meta_key_raises_value_error_not_key_error(tmp_ticker_dir):
+    # write_structured/write_derived can never produce this, but §8.4's
+    # `validate` must be deterministic and fatal WITH A MESSAGE, so a
+    # hand-edited or truncated artifact must not surface as a bare KeyError.
+    bad = tmp_ticker_dir / "structured" / "hand_edited.json"
+    bad.write_text(json.dumps({
+        "_meta": {"id": "hand_edited", "ticker": "PANW", "producer": "fetch"},
+        "data": {},
+    }))
+    with pytest.raises(ValueError, match="title"):
+        prov.read_structured(bad)
+
+
+def test_read_structured_missing_meta_block_raises_value_error_not_key_error(tmp_ticker_dir):
+    bad = tmp_ticker_dir / "structured" / "truncated.json"
+    bad.write_text(json.dumps({"data": {}}))
+    with pytest.raises(ValueError, match="_meta"):
+        prov.read_structured(bad)
+
+
+def test_read_structured_missing_data_key_raises_value_error_not_key_error(tmp_ticker_dir):
+    bad = tmp_ticker_dir / "structured" / "no_data.json"
+    bad.write_text(json.dumps({"_meta": {
+        "id": "no_data", "ticker": "PANW", "producer": "fetch", "title": "t",
+        "source": "s", "as_of": "2026-08-11",
+    }}))
+    with pytest.raises(ValueError, match="data"):
+        prov.read_structured(bad)
+
+
+# --- atomicity: refused writes leave no .tmp litter and no corruption -----
+
+def test_write_structured_refused_write_leaves_no_tmp_litter(tmp_ticker_dir):
+    # a shape-check failure never reaches the filesystem at all
+    with pytest.raises(ValueError):
+        prov.write_structured(tmp_ticker_dir, _fetch_meta(url=None), {})
+    leftovers = list((tmp_ticker_dir / "structured").glob("*.tmp"))
+    assert leftovers == []
+    assert list((tmp_ticker_dir / "structured").glob("*")) == []
+
+
+def test_write_structured_nan_failure_leaves_no_tmp_litter(tmp_ticker_dir):
+    # unlike the shape-check case above, a NaN payload fails INSIDE
+    # _write_structured_json, after mkstemp has already created a temp file —
+    # this exercises the `except BaseException: unlink` cleanup path directly
+    with pytest.raises(ValueError):
+        prov.write_structured(tmp_ticker_dir, _fetch_meta(), {"v": float("nan")})
+    assert list((tmp_ticker_dir / "structured").glob("*")) == []
+
+
+def test_write_structured_refused_overwrite_leaves_existing_artifact_byte_unchanged(tmp_ticker_dir):
+    good_path = prov.write_structured(tmp_ticker_dir, _fetch_meta(), {"v": 1})
+    original_bytes = good_path.read_bytes()
+
+    # a second write to the SAME id, this time with an invalid (NaN) payload,
+    # must be refused without disturbing the artifact already on disk
+    with pytest.raises(ValueError):
+        prov.write_structured(tmp_ticker_dir, _fetch_meta(), {"v": float("nan")})
+
+    assert good_path.read_bytes() == original_bytes
+    leftovers = list((tmp_ticker_dir / "structured").glob("*.tmp"))
+    assert leftovers == []
