@@ -85,6 +85,12 @@ def apply_selection(
     the point of showing it the prose. The subject is never selectable, and
     candidate/ranked symbols are both normalized before comparison so that
     holds independently of how the candidate table capitalized things.
+
+    `top_n` binds the PINNED peers too: a user naming more than `top_n` gets the
+    first `top_n`, and the extras become runners-up ahead of the model's
+    (§13.4). Returning every pinned symbol would make `apply_selection` violate
+    its own `top_n` contract, and pre-trimming in the caller -- the shape this
+    replaced -- silently dropped those extras instead of recording them.
     """
     by_symbol = {_norm(r.get("symbol")): r for r in candidates}
     subject = {_norm(r.get("symbol")) for r in candidates if r.get("is_subject")}
@@ -96,14 +102,17 @@ def apply_selection(
     pinned_syms = list(dict.fromkeys(
         _norm(s) for s in pinned if _norm(s))) if pinned else []
     pinned_syms = [s for s in pinned_syms if s not in subject]
+    # `rest` excludes every pinned symbol, not just the seated ones: an extra
+    # the model also ranked must appear once, as the user's, not twice.
+    seated, extras = pinned_syms[:top_n], pinned_syms[top_n:]
 
     def build(symbol: str) -> dict:
         base = by_symbol.get(symbol, {"symbol": symbol, "is_subject": False})
         return _row(base, rankings.get(symbol))
 
-    selected = [build(s) for s in pinned_syms]
+    selected = [build(s) for s in seated]
     rest = [build(r["symbol"]) for r in cleaned
             if r["symbol"] not in pinned_syms and r["symbol"] not in subject]
 
     fill = max(0, top_n - len(selected))
-    return selected + rest[:fill], rest[fill:]
+    return selected + rest[:fill], [build(s) for s in extras] + rest[fill:]

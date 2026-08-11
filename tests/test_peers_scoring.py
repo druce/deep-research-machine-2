@@ -75,9 +75,26 @@ def test_symbols_are_normalized_on_both_sides():
     assert [r["symbol"] for r in sel] == ["PANW"]
 
 
-def test_more_pinned_than_the_set_size_returns_them_all():
+def test_more_pinned_than_the_set_size_seats_five_and_records_the_extras():
+    """§13.4: "first five are selected, extras remain recorded as runners-up".
+
+    EXP returned all seven and left runners empty; its caller then pre-trimmed
+    to five, which DISCARDED the extras the spec says to keep. `top_n` binds the
+    pinned list here so the function cannot overfill its own contract.
+    """
     sel, run = apply_selection(_cands(*"ABCDEFG"), [], pinned=list("ABCDEFG"))
-    assert len(sel) == 7 and run == []
+    assert [r["symbol"] for r in sel] == list("ABCDE")
+    assert [r["symbol"] for r in run] == list("FG")
+
+
+def test_a_pinned_extra_the_model_also_ranked_appears_once():
+    """It is the user's pick, seated (or shelved) as such — not duplicated into
+    the model's half of the runners-up."""
+    sel, run = apply_selection(_cands(*"ABCDEFG"),
+                               [{"symbol": "F", "rank": 1, "rationale": "x"}],
+                               pinned=list("ABCDEF"))
+    assert [r["symbol"] for r in sel] == list("ABCDE")
+    assert [r["symbol"] for r in run] == ["F"]
 
 
 def test_retired_names_are_gone():

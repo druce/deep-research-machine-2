@@ -40,6 +40,7 @@ from lib.peers_enrich import enrich, fetch_profiles, fetch_revenues
 from lib.peers_funds import (
     MAX_HOLDINGS,
     MIN_HOLDINGS,
+    TOP_FUNDS,
     fmp_etf_holdings_count,
     prefilter_exposure,
     select_funds,
@@ -246,6 +247,7 @@ def fetch_peers(
     proxy_provider: Callable[[str], tuple[str, str, str]] | None = None,
     profile_provider: Callable[[str], list[dict]] | None = None,
     income_provider: Callable[[str], list[dict]] | None = None,
+    top_funds: int | None = None,
     now: datetime | None = None,
 ) -> tuple[bool, list[Path], str | None]:
     """Gather four peer sources, enrich, and write the candidate table (§13.3).
@@ -354,7 +356,9 @@ def fetch_peers(
     exposed: list[dict] = []
     try:
         exposed = prefilter_exposure(exposure_provider(subject))
-        picked = select_funds(exposed, info_provider, failed=info_failed)
+        picked = select_funds(exposed, info_provider,
+                              top_n=top_funds if top_funds is not None else TOP_FUNDS,
+                              failed=info_failed)
         holdings = {f["symbol"]: holdings_provider(f["symbol"]) for f in picked}
         fund_counts = union_holdings(holdings)
         fund_counts.pop(subject, None)   # the subject is not its own fund-peer

@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 from lib.fetchers import fred, multpl
 from lib.fetchers.calendar import last_earnings_date
 from lib.fetchers.multpl import MULTPL_SERIES
+from lib.fetchers.peers import fetch_peers, peers_path, read_user_peers
 from lib.fetchers.urls import harvest_answer, harvest_targets
 from lib.fetchers.registry import (
     DEFAULT_KINDS,
@@ -38,9 +39,14 @@ from lib.lock import LockHeldError, TickerLock
 from lib.manifest import build_manifest
 # `_reject_path_traversal` is imported rather than reimplemented so the rule for
 # what counts as a bare artifact id (§8.4) has exactly one definition.
-from lib.provenance import _reject_path_traversal, resolve_artifact, resolve_source
+from lib.peers_scoring import PEER_SET_SIZE, apply_selection
+from lib.provenance import (
+    StructuredMeta, _reject_path_traversal, read_structured, resolve_artifact,
+    resolve_source, write_derived)
 from lib.sections import SECTION_IDS, load_sections
-from lib.statefile import init_state, load_state, mark_section_dirty, save_state, stale_kinds
+from lib.statefile import (
+    init_state, load_state, mark_section_dirty, record_derived, record_fetch,
+    save_state, stale_kinds)
 from lib.validate import has_errors, validate
 from lib.wiki import append_log, update_index, wiki_lint
 
@@ -323,6 +329,258 @@ def cmd_prefetch_macro(args: argparse.Namespace) -> int:
     print(json.dumps({"fetched": fetched, "skipped": skipped,
                       "errors": errors, "warnings": warnings}, indent=2))
     return 0  # §12.3: a failed macro series is a warning, never a build failure
+
+
+def cmd_peers_candidates(args: argparse.Namespace) -> int:
+    """Gather the four peer sources into `derived/peers/` (§13.3).
+
+    Exit 1 if the ticker is not initialized, 2 if every source failed AND the
+    user named nobody (§13.5) — a single dead source is a warning, since the
+    remaining ones still produce a usable table.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+
+    try:
+        state = load_state(d)
+    except FileNotFoundError:
+        print(f"{ticker}: not initialized (run: sra.py init {ticker})", file=sys.stderr)
+        return 1
+
+    # Split only; `fetch_peers` normalizes case, whitespace and duplicates
+    # itself, so the CLI does not get a second opinion about what a symbol is.
+    user = [s for s in args.peers.split(",") if s.strip()] if args.peers else None
+
+    try:
+        with TickerLock(d, "peers-candidates", force=args.force_lock):
+            ok, paths, err = fetch_peers(ticker, d, state, user_peers=user,
+                                         top_funds=args.top_funds)
+            save_state(d, state)
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    print(json.dumps({"ok": ok, "written": [str(p) for p in paths],
+                      "warnings": err}, indent=2))
+    return 0 if ok else 2
+
+
+def _parse_stamp(value: object) -> datetime | None:
+    """An ISO timestamp off disk, as an aware datetime, or None."""
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _read_peers_json(path: Path) -> tuple[StructuredMeta | None, object, str | None]:
+    """`(meta, data, error)` for a shaped peers artifact; error is None on success.
+
+    `peers_ranked.json` is on the MODEL's write path and every one of these can
+    be caught by a run interrupted mid-write, so a malformed file is a
+    foreseeable input: `main()` owes the caller an exit code, not a
+    JSONDecodeError traceback.
+    """
+    try:
+        meta, data = read_structured(path)
+    except json.JSONDecodeError as exc:
+        return None, None, f"invalid JSON in {path}: {exc}"
+    except (KeyError, TypeError, ValueError) as exc:
+        return None, None, f"malformed artifact {path}: {type(exc).__name__}: {exc}"
+    return meta, data, None
+
+
+def cmd_peers_select(args: argparse.Namespace) -> int:
+    """Pin the user's peers, fill the rest from the ranking, write five (§13.3).
+
+    Deterministic: nothing is scored here. The model returns an ordered list and
+    this applies it under the §13.4 top-up contract.
+
+    Exit 1 when there is no candidate table, an input is malformed, the ranking
+    predates the candidate set (§13.5 — it ranked an older table), or the pinned
+    list is short and there is no ranking to top up with.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+
+    try:
+        state = load_state(d)
+    except FileNotFoundError:
+        print(f"{ticker}: not initialized (run: sra.py init {ticker})", file=sys.stderr)
+        return 1
+
+    cand_path = peers_path(d, "peers_candidates")
+    if not cand_path.exists():
+        print(f"peers-select: no peers_candidates.json for {ticker} "
+              f"(run: sra.py peers-candidates {ticker})", file=sys.stderr)
+        return 1
+    cand_meta, cand_data, err = _read_peers_json(cand_path)
+    if err or cand_meta is None:
+        print(f"peers-select: {err}", file=sys.stderr)
+        return 1
+    if not isinstance(cand_data, dict) or not isinstance(
+            cand_data.get("candidates"), list):
+        print(f"peers-select: malformed {cand_path}: data.candidates must be a list",
+              file=sys.stderr)
+        return 1
+    candidates = cand_data["candidates"]
+
+    # The freshness key is when the candidate SET last changed, not when the
+    # file was last written: `peers` is a default prefetch kind, so a routine
+    # refresh rewrites the table without changing anything a ranking depends on.
+    changed_at = (_parse_stamp(cand_data.get("candidates_changed_at"))
+                  or _parse_stamp(cand_meta.computed_at)
+                  or datetime.min.replace(tzinfo=timezone.utc))
+
+    derived: list[str] = ["peers_candidates"]
+    warnings: list[str] = []
+
+    # --- pinned peers (§13.5's stale-file rule) -----------------------------
+    pinned, recorded_at = read_user_peers(d)
+    state_peers = [str(s).strip().upper() for s in
+                   (state.get("derived", {}).get("peers_selected", {})
+                    .get("user_peers") or [])]
+    if pinned:
+        stamp = _parse_stamp(recorded_at)
+        if stamp is None or stamp < changed_at:
+            # Left by an earlier, different run — pinning it would fill slots
+            # with peers the user never named THIS time. Nothing is deleted;
+            # §13.5 says re-assert with `peers-candidates --peers`.
+            msg = (f"ignoring stale peers_user.json (recorded_at {recorded_at} "
+                   f"predates the current candidate set of {changed_at.isoformat()})"
+                   + (f"; falling back to {len(state_peers)} peers persisted in state"
+                      if state_peers else ""))
+            print(f"peers-select: {msg}", file=sys.stderr)
+            warnings.append(msg)
+            pinned = state_peers
+        else:
+            derived.append("peers_user")
+    elif state_peers:
+        pinned = state_peers
+
+    # --- the ranking --------------------------------------------------------
+    ranked: list = []
+    ranked_path = Path(args.ranked_file) if args.ranked_file else \
+        peers_path(d, "peers_ranked")
+
+    if len(pinned) >= PEER_SET_SIZE:
+        # Every slot is spoken for, so §13.4 skipped the rater and there is no
+        # ranking to read at all. `apply_selection` seats the first PEER_SET_SIZE
+        # and returns the extras as runners-up.
+        origin = "user_provided"
+    elif ranked_path.exists():
+        ranked_meta, ranked_data, err = _read_peers_json(ranked_path)
+        if err or ranked_meta is None:
+            print(f"peers-select: {err}", file=sys.stderr)
+            return 1
+        if not isinstance(ranked_data, list):
+            print(f"peers-select: {ranked_path} must carry a JSON list of ranked "
+                  f"peers under `data`, got {type(ranked_data).__name__}",
+                  file=sys.stderr)
+            return 1
+        generated_at = _parse_stamp(ranked_meta.generated_at)
+        if generated_at is None:
+            print(f"peers-select: {ranked_path.name} has no readable "
+                  f"_meta.generated_at, so its ranking cannot be checked against "
+                  f"the candidate set (§13.5) — re-run /sra-peers", file=sys.stderr)
+            return 1
+        if generated_at < changed_at:
+            print(f"peers-select: {ranked_path.name} ({generated_at.isoformat()}) "
+                  f"predates the current candidate set ({changed_at.isoformat()}) "
+                  f"— it ranked an older table; re-run /sra-peers to rank the "
+                  f"current one", file=sys.stderr)
+            return 1
+        ranked = ranked_data
+        origin = "user_topped_up" if pinned else "model_rated"
+        if ranked_path == peers_path(d, "peers_ranked"):
+            derived.append("peers_ranked")
+    else:
+        print(f"peers-select: {len(pinned)} user peers is under {PEER_SET_SIZE} "
+              f"and {ranked_path.name} does not exist — run /sra-peers to rank "
+              f"first", file=sys.stderr)
+        return 1
+
+    selected, runners = apply_selection(candidates, ranked, pinned=pinned)
+    if len(selected) < PEER_SET_SIZE:
+        # The whole premise is five comparables; a short set reporting success
+        # is the same silent-shortfall shape as a source that vanishes.
+        msg = (f"only {len(selected)} of {PEER_SET_SIZE} peers selected "
+               f"({len(pinned)} pinned, {len(ranked)} ranked)")
+        print(f"peers-select: {msg}", file=sys.stderr)
+        warnings.append(msg)
+    for row in runners:
+        if row["symbol"] in pinned:
+            row["origin"] = "user_provided"   # §13.4: extras stay attributed
+
+    now = _utcnow()
+    # `model` shape (§6.2, §13.3): this records model-mediated judgment, so no
+    # `url` and no `fetch_cmd`. `source` names where the judgment came from —
+    # the rater, or the user when their own list filled every slot.
+    meta = StructuredMeta(
+        id="peers_selected", ticker=ticker, producer="model",
+        title=f"{ticker} selected peer set",
+        source="sra-rater" if "peers_ranked" in derived else "user_provided",
+        generated_at=now.isoformat(), as_of=now.date().isoformat(),
+        derived_from=derived)
+
+    try:
+        with TickerLock(d, "peers-select", force=args.force_lock):
+            write_derived(d, meta, {"peers": selected, "runners_up": runners,
+                                    "origin": origin, "warnings": warnings},
+                          namespace="peers")
+            # `peers` in data{} is what `prefetch --stale-only` reads (§13.3:
+            # the gather stamps `peers_candidates`, selection stamps `peers`).
+            record_fetch(state, "peers", "peers_selected", now, {"policy_days": 90})
+            # ...and the silver lineage entry (§7). `record_derived` REPLACES
+            # derived[key], so the persisted user list — which §13.5 makes the
+            # fallback above — is captured first and restored after.
+            carried = {k: v for k, v in
+                       state.get("derived", {}).get("peers_selected", {}).items()
+                       if k in ("user_peers", "asked_at")}
+            record_derived(state, "peers_selected", "peers_selected", now,
+                           _peer_refs(d, derived))
+            state["derived"]["peers_selected"].update(carried)
+            save_state(d, state)
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    print(json.dumps({"selected": [r["symbol"] for r in selected],
+                      "origin": origin,
+                      "runners_up": [r["symbol"] for r in runners],
+                      "warnings": warnings}, indent=2))
+    return 0
+
+
+def _peer_refs(ticker_dir: Path, ids: list[str]) -> list[dict]:
+    """Stamped `derived_from` references for `record_derived` (§7).
+
+    The stamp is what lets `invalidate` (§10.2) notice an input was rewritten,
+    so each id carries its artifact's own timestamp. `peers_user` is bare by
+    design, so its `recorded_at` stands in.
+    """
+    refs: list[dict] = []
+    for artifact_id in ids:
+        if artifact_id == "peers_user":
+            _peers, recorded_at = read_user_peers(ticker_dir)
+            refs.append({"id": artifact_id,
+                         "fetched_at": recorded_at or _utcnow().isoformat()})
+            continue
+        try:
+            meta, _ = read_structured(peers_path(ticker_dir, artifact_id))
+        except (OSError, ValueError, json.JSONDecodeError):
+            refs.append({"id": artifact_id, "fetched_at": _utcnow().isoformat()})
+            continue
+        stamp = meta.computed_at or meta.generated_at or meta.fetched_at
+        key = ("computed_at" if meta.computed_at else
+               "generated_at" if meta.generated_at else "fetched_at")
+        refs.append({"id": artifact_id, key: stamp or _utcnow().isoformat()})
+    return refs
 
 
 def _utcnow() -> datetime:
@@ -657,6 +915,17 @@ def build_parser() -> argparse.ArgumentParser:
                     help="only fetch kinds that are stale or never fetched")
     sp.add_argument("--peers", default=None,
                     help="comma-separated user-provided peer list (peers fetcher only)")
+
+    sp = add("peers-candidates", cmd_peers_candidates, mutating=True)
+    sp.add_argument("--peers", default=None,
+                    help="comma-separated user-provided peer list to pin")
+    sp.add_argument("--top-funds", type=int, default=None,
+                    help="how many overlapping funds to use (default: 5)")
+
+    sp = add("peers-select", cmd_peers_select, mutating=True)
+    sp.add_argument("--ranked-file", default=None,
+                    help="path to the rater's ranking (default: "
+                         "derived/peers/peers_ranked.json)")
 
     sp = add("fetch-urls", cmd_fetch_urls, mutating=True)
     sp.add_argument("--from", dest="source", default=None,
