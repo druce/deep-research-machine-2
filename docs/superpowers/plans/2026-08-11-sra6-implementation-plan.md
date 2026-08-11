@@ -180,7 +180,10 @@ BRONZE_KINDS = frozenset({"sec_filing", "wikipedia", "news", "perplexity_researc
 MODEL_KINDS = frozenset({"research_answer"})
 DERIVED_SUBDIR = "derived"
 SOURCE_COMPUTED = "computed"
-TMP_SUBDIR = ".tmp"
+# NOTE: no TMP_SUBDIR. EXP's `.tmp/` scratch convention is retired — the spec's §4 tree
+# has no `.tmp/`, and §4.2 makes the peers working set durable silver under derived/peers/,
+# explicitly "not treated as disposable scratch space". §20's contract lists exactly the
+# four constants above. Do not reintroduce it in code, CLAUDE.md, or `init`'s directory set.
 
 @dataclass
 class SourceMeta:  # §5, §20
