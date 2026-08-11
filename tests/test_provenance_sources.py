@@ -30,9 +30,14 @@ def test_model_kinds_exact_membership():
 
 def test_source_meta_required_and_optional_fields():
     names = {f.name for f in dataclasses.fields(prov.SourceMeta)}
+    # `truncated` is not in §5's schema example (that example is a filing, which
+    # is never truncated), but §8.3.1 requires a harvested web page cut at 200k
+    # chars to record the fact in frontmatter, and it gets its own field rather
+    # than riding inside `request` — see the note on the dataclass.
     assert names == {
         "id", "ticker", "kind", "source", "url", "fetched_at", "as_of", "title",
         "fetch_tool", "fetch_cmd", "request", "supersedes", "cited_urls",
+        "truncated",
     }
     required = {
         f.name for f in dataclasses.fields(prov.SourceMeta)

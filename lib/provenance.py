@@ -61,6 +61,14 @@ class SourceMeta:
     request: dict[str, object] | None = None
     supersedes: str | None = None
     cited_urls: list[str] = field(default_factory=list)
+    # §8.3.1 requires a harvested web page truncated at 200k chars to record
+    # that fact in frontmatter. §5's schema example does not name the field
+    # (it shows a filing, which is never truncated), but the requirement is
+    # explicit, and overloading `request` — which §5 defines as the API
+    # parameters that produced the artifact — would make a document's
+    # provenance say something false about how it was fetched. Emitted only
+    # when True, like the other optionals.
+    truncated: bool = False
 
 
 @dataclass
@@ -175,6 +183,8 @@ def _write_source_md(target_dir: Path, meta: SourceMeta, body: str) -> Path:
         metadata["supersedes"] = meta.supersedes
     if meta.cited_urls:
         metadata["cited_urls"] = meta.cited_urls
+    if meta.truncated:
+        metadata["truncated"] = True
 
     post = frontmatter.Post(body, **metadata)
     text = frontmatter.dumps(post, sort_keys=False) + "\n"
@@ -389,6 +399,7 @@ def read_source(path: Path) -> tuple[SourceMeta, str]:
         request=md.get("request"),
         supersedes=md.get("supersedes"),
         cited_urls=list(md.get("cited_urls") or []),
+        truncated=bool(md.get("truncated") or False),
     )
     return meta, post.content
 

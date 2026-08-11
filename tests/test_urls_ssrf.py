@@ -368,6 +368,17 @@ def test_markdown_is_truncated_at_200k_and_flagged():
     assert data["truncated"] is True
 
 
+@pytest.mark.integration
+def test_live_fetch_of_a_public_page():
+    """The offline tests all inject a transport, so nothing else exercises real
+    DNS, real httpx streaming, and real lxml together — the pieces most likely
+    to disagree with a MockTransport's idea of a response."""
+    ok, data, err = fetch_url_to_markdown("https://example.com/")
+    assert (ok, err) == (True, None)
+    assert data["content_type"] == "text/html"
+    assert "Example Domain" in data["markdown"]
+
+
 def test_transport_failure_is_a_clean_error_not_an_exception():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectTimeout("timed out")

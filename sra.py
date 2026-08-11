@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 from lib.fetchers import fred, multpl
 from lib.fetchers.calendar import last_earnings_date
 from lib.fetchers.multpl import MULTPL_SERIES
+from lib.fetchers.urls import harvest_answer, harvest_targets
 from lib.fetchers.registry import (
     DEFAULT_KINDS,
     FETCHERS,
@@ -37,7 +38,7 @@ from lib.lock import LockHeldError, TickerLock
 from lib.manifest import build_manifest
 # `_reject_path_traversal` is imported rather than reimplemented so the rule for
 # what counts as a bare artifact id (§8.4) has exactly one definition.
-from lib.provenance import _reject_path_traversal, resolve_artifact
+from lib.provenance import _reject_path_traversal, resolve_artifact, resolve_source
 from lib.sections import SECTION_IDS, load_sections
 from lib.statefile import init_state, load_state, mark_section_dirty, save_state, stale_kinds
 from lib.validate import has_errors, validate
@@ -324,6 +325,81 @@ def cmd_prefetch_macro(args: argparse.Namespace) -> int:
     return 0  # §12.3: a failed macro series is a warning, never a build failure
 
 
+def _utcnow() -> datetime:
+    """Wall clock, in one place so `fetch-urls` freshness is injectable in tests."""
+    return datetime.now(timezone.utc)
+
+
+def cmd_fetch_urls(args: argparse.Namespace) -> int:
+    """Harvest researcher/aggregator `cited_urls` into bronze (§8.3).
+
+    Without `--from`, every answer and aggregator source with an unharvested
+    URL is processed. With it, exactly that document is processed — and its
+    previously failed URLs are re-attempted, which the bulk path deliberately
+    does not do.
+
+    §8.3 makes a failed TARGET fetch a warning, not a command failure: the URL
+    gets a `null` in the map (telling the synthesizer the claim is not citable)
+    and the command still exits 0. Exit 1 is reserved for the cases where there
+    is nothing to work from at all — an uninitialized ticker, or a `--from` id
+    that names no readable document.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+
+    if not (d / ".state.json").exists():
+        print(f"{ticker}: not initialized (run: sra.py init {ticker})", file=sys.stderr)
+        return 1
+
+    if args.source:
+        try:
+            _reject_path_traversal(args.source, "--from")
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        answer = d / "derived" / "answers" / f"{args.source}.md"
+        path = answer if answer.exists() else resolve_source(d, args.source)
+        if path is None:
+            print(f"{ticker}: no answer or source with id {args.source!r}",
+                  file=sys.stderr)
+            return 1
+        targets = [path]
+    else:
+        targets = harvest_targets(d)
+
+    now = _utcnow()
+    fetched: list[str] = []
+    skipped: list[str] = []
+    errors: dict[str, str] = {}
+
+    try:
+        with TickerLock(d, "fetch-urls", force=args.force_lock):
+            for target in targets:
+                try:
+                    result = harvest_answer(d, target, args.max, now=now)
+                except (KeyError, ValueError, OSError) as exc:
+                    # §8.3's one fatal condition: the answer file itself is
+                    # unreadable. Only reachable with --from, since the bulk
+                    # path already skipped anything it could not read.
+                    print(f"cannot read {target}: {type(exc).__name__}: {exc}",
+                          file=sys.stderr)
+                    return 1
+                fetched += result["fetched"]
+                skipped += result["skipped"]
+                errors.update(result["errors"])
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    for url, reason in errors.items():
+        print(f"warning: {url}: {reason}", file=sys.stderr)
+    print(json.dumps({"fetched": fetched, "skipped": skipped, "errors": errors},
+                     indent=2))
+    return 0
+
+
 def cmd_manifest(args: argparse.Namespace) -> int:
     """Regenerate `sources/00_manifest.md` and print its path (§5.1, §9).
 
@@ -581,6 +657,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="only fetch kinds that are stale or never fetched")
     sp.add_argument("--peers", default=None,
                     help="comma-separated user-provided peer list (peers fetcher only)")
+
+    sp = add("fetch-urls", cmd_fetch_urls, mutating=True)
+    sp.add_argument("--from", dest="source", default=None,
+                    help="harvest only this answer or aggregator source id "
+                         "(default: every document with unharvested cited_urls)")
+    sp.add_argument("--max", type=int, default=None,
+                    help="cap the number of URLs fetched per document")
 
     add("validate", cmd_validate, mutating=False)
     add("wiki-index", cmd_wiki_index, mutating=True)

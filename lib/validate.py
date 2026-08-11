@@ -155,13 +155,22 @@ def _check_containment(ticker_dir: Path, data_root: Path) -> list[Finding]:
 
 # --- checks 1 and 2 over JSON artifacts ----------------------------------
 
+# §8.3 fixes the format of an answer's URL→id map as a BARE `{url: id | null}`
+# object, with no `_meta`/`data` envelope. It is a lookup table the synthesizer
+# reads, not a derived artifact with its own provenance, so reading it as one
+# would report a missing `_meta` on every harvested answer.
+URL_MAP_SUFFIX = ".urls.json"
+
+
 def _iter_json(ticker_dir: Path) -> list[tuple[Path, bool]]:
     """Every durable JSON artifact, paired with whether it is bronze
-    (`structured/`) or silver (`derived/`)."""
+    (`structured/`) or silver (`derived/`). `*.urls.json` maps are excluded —
+    see `URL_MAP_SUFFIX`."""
     out: list[tuple[Path, bool]] = [
         (p, True) for p in sorted((ticker_dir / "structured").rglob("*.json"))
     ]
-    out += [(p, False) for p in sorted((ticker_dir / DERIVED_SUBDIR).rglob("*.json"))]
+    out += [(p, False) for p in sorted((ticker_dir / DERIVED_SUBDIR).rglob("*.json"))
+            if not p.name.endswith(URL_MAP_SUFFIX)]
     return out
 
 

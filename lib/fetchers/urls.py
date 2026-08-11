@@ -38,9 +38,17 @@ host the model was induced to cite.
 from __future__ import annotations
 
 import ipaddress
+import json
+import os
 import socket
+import tempfile
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Callable
 from urllib.parse import urljoin, urlsplit
+
+from lib.provenance import (
+    SourceMeta, _slug, make_source_id, read_source, resolve_source, write_source)
 
 # §8.3.1 / §8.3, pinned by tests.
 MAX_REDIRECTS = 3
@@ -436,3 +444,266 @@ def _to_markdown(payload: bytes, mime: str, response) -> tuple[str, str | None]:
     if mime == "text/plain":
         return text.strip(), None
     return html_to_markdown(text)
+
+
+# --- harvest (§8.3) --------------------------------------------------------
+#
+# Turning an answer's `cited_urls` into bronze is what lets a claim cite its
+# ORIGIN rather than the aggregator that repeated it (§8.2). The map written
+# alongside each answer is the handoff: the synthesizer reads it to rewrite
+# answer-level URL citations as bronze ids, and a `null` there is the signal
+# that a claim is NOT citable and must be dropped or re-sourced.
+
+MANIFEST_NAME = "00_manifest.md"
+
+# The slug is only a human-readable handle — `make_source_id` guarantees
+# uniqueness with a `_<n>` suffix — so it is capped rather than made injective.
+MAX_SLUG_CHARS = 60
+
+
+def site_name(url: str) -> str:
+    """The `source` field for a harvested page: its hostname, `www.` stripped."""
+    host = (urlsplit(url).hostname or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def url_slug(url: str) -> str:
+    """A filename-safe topic for `make_source_id`, from the host and path."""
+    parts = urlsplit(url)
+    host = site_name(url)
+    slug = _slug(f"{host} {parts.path}")[:MAX_SLUG_CHARS].strip("-")
+    return slug or "page"
+
+
+def _parse_ts(value: str) -> datetime | None:
+    """Parse a frontmatter `fetched_at`, treating a naive stamp as UTC."""
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _iter_current_sources(ticker_dir: Path):
+    """Every CURRENT bronze document, manifest excluded, oldest id first.
+
+    `sources/archive/` is deliberately skipped: a superseded copy is not the
+    live evidence, and handing its id back would point a fresh citation at a
+    document `manifest` and `grep` exclude by design (§5, §9).
+    """
+    for path in sorted((ticker_dir / "sources").glob("*.md")):
+        if path.name == MANIFEST_NAME:
+            continue
+        try:
+            meta, _ = read_source(path)
+        except (KeyError, ValueError, OSError):
+            continue  # unreadable/hand-edited: `validate` reports it, not us
+        yield meta
+
+
+def find_source_by_url(ticker_dir: Path, url: str) -> SourceMeta | None:
+    """The newest current bronze source whose frontmatter `url` is `url`, else None.
+
+    Kind-agnostic on purpose: §8.3's rule is "if the URL already exists in
+    bronze", and if an aggregator's own URL is cited we already hold that
+    document — refetching it as a `web_page` would be a second copy of the same
+    evidence under a different id.
+    """
+    matches = [meta for meta in _iter_current_sources(ticker_dir) if meta.url == url]
+    return matches[-1] if matches else None
+
+
+def is_fresh(meta: SourceMeta, now: datetime) -> bool:
+    """Was `meta` fetched within `WEB_PAGE_POLICY_DAYS` of `now`? (§8.3)
+
+    An unparseable `fetched_at` counts as stale: the safe reading of "we cannot
+    tell how old this is" is to refetch, not to cite it indefinitely.
+    """
+    fetched_at = _parse_ts(meta.fetched_at)
+    if fetched_at is None:
+        return False
+    return now - fetched_at <= timedelta(days=WEB_PAGE_POLICY_DAYS)
+
+
+def map_path(ticker_dir: Path, artifact_id: str) -> Path:
+    """Where `<artifact-id>`'s URL→id map lives (§8.3).
+
+    Aggregator sources get their map here too, next to the answers': §8.3 names
+    exactly one location for the map, and the synthesizer looks up one id at a
+    time without caring whether the citing document was an answer or a roundup.
+    """
+    return ticker_dir / "derived" / "answers" / f"{artifact_id}.urls.json"
+
+
+def read_url_map(ticker_dir: Path, artifact_id: str) -> dict[str, str | None]:
+    """The existing URL→id map for `artifact_id`, or `{}`."""
+    path = map_path(ticker_dir, artifact_id)
+    if not path.exists():
+        return {}
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _write_url_map(ticker_dir: Path, artifact_id: str,
+                   mapping: dict[str, str | None]) -> Path:
+    """Write the map atomically, in §8.3's bare `{url: id|null}` format.
+
+    No `_meta` wrapper: §8.3 fixes the file's shape, and `validate` skips
+    `*.urls.json` for that reason.
+    """
+    target = map_path(ticker_dir, artifact_id)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=target.parent, prefix=f".{artifact_id}.",
+                                    suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(mapping, f, indent=2, sort_keys=False)
+            f.write("\n")
+        os.replace(tmp_name, target)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+    return target
+
+
+def _write_web_page(ticker_dir: Path, ticker: str, artifact_id: str,
+                    data: dict, now: datetime, supersedes: str | None) -> str:
+    """Write one harvested page to `sources/` and return its id."""
+    final_url = data["final_url"]
+    sid = make_source_id("web_page", now.date(), url_slug(final_url),
+                         ticker_dir=ticker_dir)
+    meta = SourceMeta(
+        id=sid, ticker=ticker, kind="web_page",
+        source=site_name(final_url) or "web",
+        url=final_url, fetched_at=now.isoformat(), as_of=now.date().isoformat(),
+        title=data.get("title") or final_url,
+        fetch_tool="lib/fetchers/urls.py",
+        fetch_cmd=f"uv run python sra.py fetch-urls {ticker} --from {artifact_id}",
+        supersedes=supersedes,
+        # Harvested pages carry no `cited_urls` of their own: harvesting is one
+        # hop from a researcher's citation, not a crawl. Populating this would
+        # make the next `fetch-urls` follow links out of pages we just fetched.
+        truncated=bool(data.get("truncated")))
+    write_source(ticker_dir, meta, data["markdown"], today=now.date())
+    return sid
+
+
+def harvest_answer(
+    ticker_dir: Path,
+    answer_path: Path,
+    max_n: int | None = None,
+    *,
+    fetcher: Callable[..., tuple[bool, dict | None, str | None]] | None = None,
+    now: datetime | None = None,
+) -> dict:
+    """Harvest one document's `cited_urls` into bronze (§8.3).
+
+    `answer_path` is any frontmattered document carrying `cited_urls` — a
+    researcher answer under `derived/answers/`, or an aggregator source
+    (news, perplexity_research) under `sources/`. Both are read with
+    `read_source`, and both get their map at `map_path`.
+
+    Per URL, in order:
+
+    1. already mapped to a still-resolvable id -> skip (this is what makes a
+       rerun free);
+    2. already in bronze and fresh (`WEB_PAGE_POLICY_DAYS`) -> reuse that id;
+    3. otherwise fetch. A stale `web_page` is superseded; a stale source of any
+       OTHER kind is left alone and a fresh `web_page` is written beside it,
+       because superseding e.g. a `news` document with a `web_page` would break
+       that fetcher's own `find_prior_source` chain.
+
+    `max_n` caps NETWORK FETCHES, not URLs considered — a reuse costs nothing,
+    so it should not consume the budget. URLs past the cap are left OUT of the
+    map entirely rather than written as `null`: `null` means "attempted and not
+    citable", and recording it for a URL never tried would keep any later run
+    from picking it up.
+
+    A failed fetch is a `null` entry plus an `errors` entry, never an exception
+    (§8.3: a failed target fetch is a warning). Raises only if `answer_path`
+    itself cannot be read — the one condition §8.3 makes fatal.
+
+    Returns `{"fetched": [url], "skipped": [url], "errors": {url: reason}}`.
+    """
+    fetch = fetcher or fetch_url_to_markdown
+    now = now or datetime.now(timezone.utc)
+
+    meta, _body = read_source(answer_path)
+    ticker, artifact_id = meta.ticker, meta.id
+
+    mapping = read_url_map(ticker_dir, artifact_id)
+    result: dict = {"fetched": [], "skipped": [], "errors": {}}
+    fetched = 0
+
+    seen: set[str] = set()
+    for url in meta.cited_urls:
+        if url in seen:
+            continue
+        seen.add(url)
+
+        existing = mapping.get(url)
+        if existing and resolve_source(ticker_dir, existing) is not None:
+            result["skipped"].append(url)
+            continue
+
+        prior = find_source_by_url(ticker_dir, url)
+        if prior is not None and is_fresh(prior, now):
+            mapping[url] = prior.id
+            result["skipped"].append(url)
+            continue
+
+        if max_n is not None and fetched >= max_n:
+            break  # leave the rest unharvested for a later run
+
+        fetched += 1
+        ok, data, err = fetch(url)
+        if not ok or data is None:
+            mapping[url] = None
+            result["errors"][url] = err or "fetch failed"
+            continue
+
+        supersedes = prior.id if prior is not None and prior.kind == "web_page" else None
+        try:
+            mapping[url] = _write_web_page(
+                ticker_dir, ticker, artifact_id, data, now, supersedes)
+        except (OSError, ValueError, FileExistsError) as exc:
+            mapping[url] = None
+            result["errors"][url] = f"write failed: {type(exc).__name__}: {exc}"
+            continue
+        result["fetched"].append(url)
+
+    _write_url_map(ticker_dir, artifact_id, mapping)
+    return result
+
+
+def harvest_targets(ticker_dir: Path) -> list[Path]:
+    """Every document with UNHARVESTED `cited_urls` (§8.3's no-`--from` case).
+
+    "Unharvested" means a cited URL that is not yet a KEY in the document's map
+    — so a URL whose fetch failed (`null`) is not retried on every bulk run,
+    which would mean hammering a dead link forever. Naming the document with
+    `--from` re-attempts those, since that is an explicit request.
+
+    Both researcher answers and aggregator sources are scanned: §5's `cited_urls`
+    exists on a news roundup for exactly this reason.
+    """
+    targets: list[Path] = []
+    answers_dir = ticker_dir / "derived" / "answers"
+    candidates = sorted(answers_dir.glob("*.md")) if answers_dir.is_dir() else []
+    candidates += sorted(p for p in (ticker_dir / "sources").glob("*.md")
+                         if p.name != MANIFEST_NAME)
+
+    for path in candidates:
+        try:
+            meta, _ = read_source(path)
+        except (KeyError, ValueError, OSError):
+            continue
+        if not meta.cited_urls:
+            continue
+        mapping = read_url_map(ticker_dir, meta.id)
+        if any(url not in mapping for url in meta.cited_urls):
+            targets.append(path)
+    return targets
