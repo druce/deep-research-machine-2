@@ -24,6 +24,9 @@ from dotenv import load_dotenv
 from lib.grep import grep
 from lib.lock import LockHeldError, TickerLock
 from lib.manifest import build_manifest
+# `_reject_path_traversal` is imported rather than reimplemented so the rule for
+# what counts as a bare artifact id (§8.4) has exactly one definition.
+from lib.provenance import DERIVED_SUBDIR, _reject_path_traversal, resolve_source
 from lib.statefile import init_state, load_state, stale_kinds
 
 # Provider credentials (FMP, FRED, OpenAI, Perplexity) live in .env at the repo
@@ -214,6 +217,79 @@ def cmd_grep(args: argparse.Namespace) -> int:
     return 0
 
 
+def resolve_artifact(ticker_dir: Path, artifact_id: str) -> Path | None:
+    """Resolve any artifact id under one ticker directory, in §9's order:
+
+    1. `sources/` then `sources/archive/` (via `resolve_source`, so an id
+       resolves current-or-archived without a flag — a citation to superseded
+       evidence must still be readable),
+    2. `structured/<id>.json`,
+    3. `derived/<id>.json`, then `derived/<namespace>/<id>.json`.
+
+    There is deliberately no fallback into `_MACRO`: the caller names that
+    ticker explicitly (§9), and falling back silently would let
+    `show PANW fred_dgs10` succeed while hiding which tree the evidence
+    actually lives in.
+
+    Returns None when the id resolves nowhere.
+    """
+    found = resolve_source(ticker_dir, artifact_id)
+    if found is not None:
+        return found
+
+    candidate = ticker_dir / "structured" / f"{artifact_id}.json"
+    if candidate.exists():
+        return candidate
+
+    derived_dir = ticker_dir / DERIVED_SUBDIR
+    candidate = derived_dir / f"{artifact_id}.json"
+    if candidate.exists():
+        return candidate
+    return next(iter(sorted(derived_dir.glob(f"*/{artifact_id}.json"))), None)
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    """Print one artifact whole (§9): markdown as-is, JSON pretty-printed.
+
+    Read-only, so no lock. Exit 1 when the id resolves nowhere.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+
+    try:
+        # The id is interpolated into a path, so a separator or `..` has to be
+        # refused here — containment is structural (§8.4 check 7), not something
+        # to detect after the fact.
+        _reject_path_traversal(args.id, "id")
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    if not (d / ".state.json").exists():
+        print(f"{ticker}: not initialized (run: sra.py init {ticker})", file=sys.stderr)
+        return 1
+
+    path = resolve_artifact(d, args.id)
+    if path is None:
+        print(f"{ticker}: no artifact with id {args.id!r} in sources/, "
+              f"sources/archive/, structured/ or derived/", file=sys.stderr)
+        return 1
+
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".json":
+        try:
+            print(json.dumps(json.loads(text), indent=2))
+            return 0
+        except ValueError:
+            # A hand-mangled artifact should still be readable — you cannot fix
+            # what `show` refuses to display. `validate` (§8.4) makes it fatal.
+            pass
+    print(text, end="" if text.endswith("\n") else "\n")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argparse parser.
 
@@ -238,6 +314,9 @@ def build_parser() -> argparse.ArgumentParser:
     add("init", cmd_init, mutating=True)
     add("status", cmd_status, mutating=False)
     add("manifest", cmd_manifest, mutating=True)
+
+    sp = add("show", cmd_show, mutating=False)
+    sp.add_argument("id", help="artifact id (source, structured, or derived)")
 
     sp = add("grep", cmd_grep, mutating=False)
     sp.add_argument("pattern",
