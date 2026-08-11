@@ -72,6 +72,9 @@ def _errors(findings: list[Finding]) -> list[Finding]:
 def _clean(ticker_dir: Path) -> None:
     write_source(ticker_dir, _source_meta("2026-07-30_news_yahoo"), "Revenue grew.")
     write_structured(ticker_dir, _fetch_meta("prices_yahoo"), {"close": [1]})
+    # The compute artifact declares this input, and check 5 requires every
+    # declared derivation to actually exist.
+    write_structured(ticker_dir, _fetch_meta("income_statement_yahoo"), {"rev": [1]})
     write_structured(ticker_dir, _compute_meta("key_ratios_computed"), {"pe": 30})
 
 
@@ -87,6 +90,7 @@ def test_an_empty_tree_has_no_findings(tmp_ticker_dir: Path):
 
 
 def test_a_clean_silver_model_artifact_is_fine(tmp_ticker_dir: Path):
+    write_structured(tmp_ticker_dir, _fetch_meta("peers_candidates"), {"peers": []})
     write_derived(tmp_ticker_dir, StructuredMeta(
         id="peers_ranked", ticker="PANW", producer="model", title="Ranked peers",
         source="sra-rater", as_of="2026-07-30",
