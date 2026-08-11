@@ -19,6 +19,18 @@ ESTIMATE_PERIOD_LABELS: dict[str, str] = {
 }
 
 
+def fetch_cmd(ticker: str, kind: str) -> str:
+    """The command that reproduces a kind's artifacts (§6, §8.4 check 2).
+
+    Every bronze artifact carries this. It is what makes evidence reproducible
+    rather than merely present — a reader can re-run it and get the same
+    artifact back — so it is built in one place rather than formatted by hand
+    in each fetcher, where a drifting string would still pass validation while
+    naming a command that does not work.
+    """
+    return f"uv run python sra.py prefetch {ticker.upper()} --kinds {kind}"
+
+
 def json_safe(value) -> object:
     """Coerce a pandas/numpy/datetime scalar into something json.dump accepts."""
     if value is None:

@@ -21,6 +21,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from lib.fetchers.calendar import last_earnings_date
 from lib.fetchers.registry import (
     DEFAULT_KINDS,
     FETCHERS,
@@ -141,10 +142,10 @@ def cmd_status(args: argparse.Namespace) -> int:
     Read-only, so it takes no lock (§7.1) — running `status` to watch a
     prefetch in flight is exactly the intended use.
 
-    `last_earnings` is None until `lib.fetchers.calendar.last_earnings_date`
-    exists (Phase 5); until then an `on_earnings` kind ages on
-    `EVENT_POLICY_FALLBACK_DAYS`, which is conservative in the safe direction
-    (it can say "refetch" early, never "fresh" wrongly).
+    The `on_earnings` policy is driven by `last_earnings_date`, read from the
+    stored calendar artifact. With no calendar on disk it returns None and the
+    policy falls back to `EVENT_POLICY_FALLBACK_DAYS`, which errs in the safe
+    direction: it can say "refetch" early, never "fresh" wrongly.
     """
     resolved = _resolve_ticker(args)
     if resolved is None:
@@ -159,8 +160,11 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     out = {
         "ticker": state["ticker"],
-        "stale": sorted(stale_kinds(state, datetime.now(timezone.utc),
-                                    last_earnings=None, ticker_dir=d)),
+        # Reported under the registry kind that refreshes them: `prefetch
+        # --kinds peers_candidates` is not a command anyone can run.
+        "stale": sorted({STAGE_OF.get(k, k) for k in stale_kinds(
+            state, datetime.now(timezone.utc),
+            last_earnings=last_earnings_date(d), ticker_dir=d)}),
         "sections_dirty": state["report"].get("sections_dirty", []),
         "data": {k: {"current_ids": v["current_ids"], "fetched_at": v["fetched_at"]}
                  for k, v in state["data"].items()},
@@ -188,7 +192,8 @@ def _due_kinds(state: dict, wanted: list[str], now: datetime,
     ANY of its stages is stale — or when none of its stages was ever recorded.
     """
     stale = {STAGE_OF.get(k, k)
-             for k in stale_kinds(state, now, last_earnings=None,
+             for k in stale_kinds(state, now,
+                                  last_earnings=last_earnings_date(ticker_dir),
                                   ticker_dir=ticker_dir)}
     never = {k for k in wanted
              if not any(s in state["data"] for s in KIND_STAGES.get(k, (k,)))}
