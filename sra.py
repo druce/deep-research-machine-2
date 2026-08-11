@@ -35,6 +35,7 @@ from lib.fetchers.registry import (
     run_prefetch,
 )
 from lib.grep import grep
+from lib.invalidate import apply_invalidation, compute_invalidation
 from lib.lock import LockHeldError, TickerLock
 from lib.manifest import build_manifest
 # `_reject_path_traversal` is imported rather than reimplemented so the rule for
@@ -332,6 +333,34 @@ def cmd_prefetch_macro(args: argparse.Namespace) -> int:
     print(json.dumps({"fetched": fetched, "skipped": skipped,
                       "errors": errors, "warnings": warnings}, indent=2))
     return 0  # §12.3: a failed macro series is a warning, never a build failure
+
+
+def cmd_invalidate(args: argparse.Namespace) -> int:
+    """Report (and with `--apply`, execute) what new evidence invalidates.
+
+    Dry-run by default (§10.3): without `--apply` this reads the tree and prints
+    the report, mutating nothing. That default is the point — invalidation
+    reopens questions and dirties sections, and an operator should see the blast
+    radius before paying for it.
+    """
+    resolved = _ledger_ticker(args)
+    if resolved is None:
+        return 1
+    _ticker, d = resolved
+
+    report = compute_invalidation(d, load_sections())
+    payload = {"applied": bool(args.apply), **report.to_dict()}
+
+    if args.apply and not report.is_empty():
+        try:
+            with TickerLock(d, "invalidate", force=args.force_lock):
+                apply_invalidation(d, report)
+        except LockHeldError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+
+    print(json.dumps(payload, indent=2))
+    return 0
 
 
 def _ledger_ticker(args: argparse.Namespace) -> tuple[str, Path] | None:
@@ -1058,6 +1087,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="only fetch kinds that are stale or never fetched")
     sp.add_argument("--peers", default=None,
                     help="comma-separated user-provided peer list (peers fetcher only)")
+
+    sp = add("invalidate", cmd_invalidate, mutating=True)
+    sp.add_argument("--apply", action="store_true",
+                    help="execute the transitions (default: dry-run, §10.3)")
 
     sp = add("questions", cmd_questions, mutating=False)
     sp.add_argument("--section", default=None,

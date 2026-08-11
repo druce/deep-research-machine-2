@@ -97,6 +97,30 @@ def write_page(ticker_dir: Path, page: str, meta: dict, body: str,
     return path
 
 
+def mark_page_dirty(ticker_dir: Path, page: str, dirty: bool = True) -> Path:
+    """Set (or clear) a wiki page's `dirty` flag in frontmatter (§10.2).
+
+    Deliberately NOT `write_page`: that stamps `updated_at` fresh, which is
+    right when the notes are rewritten and wrong here. Marking a page dirty is
+    bookkeeping ABOUT the page — its evidence moved underneath it — and
+    restamping would claim the notes were revised when nothing in them changed,
+    which is exactly the signal a synthesizer uses to decide what to re-read.
+
+    `built_from` is likewise left byte-for-byte alone: those stamps are what
+    `invalidate` compares against next time (§7).
+    """
+    path = page_path(ticker_dir, page)
+    if not path.exists():
+        raise FileNotFoundError(path)
+    post = frontmatter.loads(path.read_text(encoding="utf-8"))
+    if dirty:
+        post.metadata["dirty"] = True
+    else:
+        post.metadata.pop("dirty", None)
+    path.write_text(frontmatter.dumps(post, sort_keys=False) + "\n", encoding="utf-8")
+    return path
+
+
 def _pages(ticker_dir: Path) -> list[Path]:
     """Every real wiki page — the generated index and the log are bookkeeping,
     not knowledge."""
