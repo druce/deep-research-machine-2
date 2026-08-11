@@ -15,11 +15,13 @@ import argparse
 import json
 import re
 import sys
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+from lib.grep import grep
 from lib.lock import LockHeldError, TickerLock
 from lib.manifest import build_manifest
 from lib.statefile import init_state, load_state, stale_kinds
@@ -179,6 +181,39 @@ def cmd_manifest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_grep(args: argparse.Namespace) -> int:
+    """Search bronze bodies and print ranked hits as JSON (§9).
+
+    Read-only, so no lock: grepping while a prefetch runs is normal.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+
+    if not (d / ".state.json").exists():
+        print(f"{ticker}: not initialized (run: sra.py init {ticker})", file=sys.stderr)
+        return 1
+
+    try:
+        hits = grep(
+            d,
+            args.pattern,
+            kinds=[k.strip() for k in args.kinds.split(",") if k.strip()]
+            if args.kinds else None,
+            context=args.context,
+            top_k=args.top_k,
+            include_archived=args.include_archived,
+        )
+    except ValueError as exc:
+        # A malformed regex must not read as "no such evidence exists".
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    print(json.dumps([asdict(h) for h in hits], indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argparse parser.
 
@@ -203,6 +238,18 @@ def build_parser() -> argparse.ArgumentParser:
     add("init", cmd_init, mutating=True)
     add("status", cmd_status, mutating=False)
     add("manifest", cmd_manifest, mutating=True)
+
+    sp = add("grep", cmd_grep, mutating=False)
+    sp.add_argument("pattern",
+                    help="whitespace-separated terms, each a case-insensitive regex")
+    sp.add_argument("--kinds", default=None,
+                    help="comma-separated source kinds to restrict the search to")
+    sp.add_argument("--context", type=int, default=2,
+                    help="lines of context on each side of the match (default: 2)")
+    sp.add_argument("--top-k", type=int, default=None,
+                    help="keep only the top K hits after ranking")
+    sp.add_argument("--include-archived", action="store_true",
+                    help="also search sources/archive/ (§5)")
     return p
 
 
