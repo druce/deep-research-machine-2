@@ -43,6 +43,9 @@ from lib.peers_scoring import PEER_SET_SIZE, apply_selection
 from lib.provenance import (
     StructuredMeta, _reject_path_traversal, read_structured, resolve_artifact,
     resolve_source, write_derived)
+from lib.questions import (
+    DEFAULT_ORIGIN, STATUSES, add_questions, load_questions, mark_answered,
+    record_attempt)
 from lib.sections import SECTION_IDS, load_sections
 from lib.statefile import (
     init_state, load_state, mark_section_dirty, record_derived, record_fetch,
@@ -329,6 +332,146 @@ def cmd_prefetch_macro(args: argparse.Namespace) -> int:
     print(json.dumps({"fetched": fetched, "skipped": skipped,
                       "errors": errors, "warnings": warnings}, indent=2))
     return 0  # §12.3: a failed macro series is a warning, never a build failure
+
+
+def _ledger_ticker(args: argparse.Namespace) -> tuple[str, Path] | None:
+    """Resolve and require an initialized ticker for a ledger command."""
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return None
+    ticker, d = resolved
+    if not (d / ".state.json").exists():
+        print(f"{ticker}: not initialized (run: sra.py init {ticker})", file=sys.stderr)
+        return None
+    return ticker, d
+
+
+def cmd_questions(args: argparse.Namespace) -> int:
+    """Print the (optionally filtered) question ledger as JSON (§14)."""
+    resolved = _ledger_ticker(args)
+    if resolved is None:
+        return 1
+    _ticker, d = resolved
+
+    rows = load_questions(d)
+    if args.section:
+        rows = [q for q in rows if q.get("section") == args.section]
+    if args.status:
+        rows = [q for q in rows if q.get("status") == args.status]
+    print(json.dumps(rows, indent=2))
+    return 0
+
+
+def cmd_add_questions(args: argparse.Namespace) -> int:
+    """Record questions against a section (§14.0, §14.1).
+
+    This is the capture surface EVERY phase uses — a section writer that hits a
+    gap, a critic, `sra-lint`, chart selection. Capture is cheap and idempotent
+    (identity is `sha1(section|question)`), and is NEVER refused for volume: the
+    reported open count is a backlog signal, not an error.
+    """
+    resolved = _ledger_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+
+    if args.section not in SECTION_IDS:
+        print(f"unknown section {args.section!r} (known: {', '.join(SECTION_IDS)})",
+              file=sys.stderr)
+        return 1
+
+    texts = list(args.question or [])
+    if args.from_file:
+        path = Path(args.from_file)
+        try:
+            texts += [line.strip() for line in
+                      path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        except OSError as exc:
+            print(f"cannot read {path}: {exc}", file=sys.stderr)
+            return 1
+    if not texts:
+        print("add-questions needs --question (repeatable) or --from-file",
+              file=sys.stderr)
+        return 1
+
+    try:
+        with TickerLock(d, "add-questions", force=args.force_lock):
+            result = add_questions(d, args.section, texts,
+                                   round_=args.round, origin=args.origin)
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except ValueError as exc:      # §14's hash-collision refusal
+        print(f"add-questions: {exc}", file=sys.stderr)
+        return 1
+
+    print(json.dumps({"ticker": ticker, "section": args.section, **result}, indent=2))
+    return 0
+
+
+def cmd_mark_answered(args: argparse.Namespace) -> int:
+    """Close a question against stamped bronze evidence (§14.1).
+
+    Exit 1 — leaving the question open — when the hash is unknown or any source
+    is not bronze. §14.1 is explicit that a question with no citable evidence
+    stays open; closing it anyway is the silent shortfall that rule forbids.
+    """
+    resolved = _ledger_ticker(args)
+    if resolved is None:
+        return 1
+    _ticker, d = resolved
+
+    sources = [s.strip() for part in (args.sources or [])
+               for s in part.split(",") if s.strip()]
+    artifacts = [a.strip() for part in (args.artifacts or [])
+                 for a in part.split(",") if a.strip()]
+
+    try:
+        with TickerLock(d, "mark-answered", force=args.force_lock):
+            row = mark_answered(d, args.question_hash, sources, artifacts=artifacts)
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except KeyError as exc:
+        print(f"mark-answered: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"mark-answered: {exc}", file=sys.stderr)
+        return 1
+
+    print(json.dumps(row, indent=2))
+    return 0
+
+
+def cmd_record_attempt(args: argparse.Namespace) -> int:
+    """Count dispatches that returned no citable evidence (§14.0).
+
+    §20 defines `record_attempt` but §19's command table has no command reaching
+    it; this subcommand is that addition, so the deferral floor is drivable from
+    the CLI rather than only from Python.
+    """
+    resolved = _ledger_ticker(args)
+    if resolved is None:
+        return 1
+    _ticker, d = resolved
+
+    results: list[dict] = []
+    try:
+        with TickerLock(d, "record-attempt", force=args.force_lock):
+            for qhash in args.question_hash:
+                status = record_attempt(d, qhash)
+                entry = next(q for q in load_questions(d) if q["hash"] == qhash)
+                results.append({"hash": qhash, "attempts": entry["attempts"],
+                                "status": status})
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except KeyError as exc:
+        print(f"record-attempt: {exc}", file=sys.stderr)
+        return 1
+
+    print(json.dumps(results[0] if len(results) == 1 else results, indent=2))
+    return 0
 
 
 def cmd_peers_candidates(args: argparse.Namespace) -> int:
@@ -915,6 +1058,36 @@ def build_parser() -> argparse.ArgumentParser:
                     help="only fetch kinds that are stale or never fetched")
     sp.add_argument("--peers", default=None,
                     help="comma-separated user-provided peer list (peers fetcher only)")
+
+    sp = add("questions", cmd_questions, mutating=False)
+    sp.add_argument("--section", default=None,
+                    help=f"restrict to one section ({', '.join(SECTION_IDS)})")
+    sp.add_argument("--status", default=None,
+                    help=f"restrict to one status ({', '.join(STATUSES)})")
+
+    sp = add("add-questions", cmd_add_questions, mutating=True)
+    sp.add_argument("--section", required=True,
+                    help=f"the section these questions belong to "
+                         f"({', '.join(SECTION_IDS)})")
+    sp.add_argument("--question", action="append", default=None,
+                    help="a question (repeatable; each occurrence is one entry)")
+    sp.add_argument("--from-file", default=None,
+                    help="read questions from a file, one per line")
+    sp.add_argument("--round", type=int, default=1,
+                    help="the research round these questions belong to")
+    sp.add_argument("--origin", default=DEFAULT_ORIGIN,
+                    help="who raised them (§23.4 purposes, plus seed and user)")
+
+    sp = add("mark-answered", cmd_mark_answered, mutating=True)
+    sp.add_argument("--question-hash", required=True, help="the question's id")
+    sp.add_argument("--sources", action="append", default=None,
+                    help="bronze ids supporting the answer (repeatable or comma-separated)")
+    sp.add_argument("--artifacts", action="append", default=None,
+                    help="researcher-answer ids, for audit only (never evidence)")
+
+    sp = add("record-attempt", cmd_record_attempt, mutating=True)
+    sp.add_argument("--question-hash", action="append", required=True,
+                    help="question id whose dispatch returned no citable evidence")
 
     sp = add("peers-candidates", cmd_peers_candidates, mutating=True)
     sp.add_argument("--peers", default=None,
