@@ -1,0 +1,440 @@
+# sections.yaml — per-section editorial config for sra6 (spec §9).
+# File order of `sections:` = report order (§1..§7). word_target_base is the
+# `long` preset; length_presets multiply it. hard_checks syntax = lib/hard_checks
+# rules (Phase 5); max-length caps there count CHARACTERS (~8 chars/word with tables).
+
+length_presets:
+  short: 0.40
+  standard: 0.75
+  long: 1.00
+
+section_ownership: |
+  **Fact ownership — read this before writing.**
+
+  The seven body sections are written in parallel by separate agents that cannot see each
+  other's drafts. "Avoid repetition" is therefore unenforceable by good intentions; it
+  works only as a contract. Each class of fact below is OWNED by exactly one section.
+
+  | Fact class | Owner |
+  |---|---|
+  | Founding, history, milestones, leadership, headcount, corporate structure | §1 Company Profile |
+  | Segment revenue mix, unit economics, monetization, pricing, product roadmap | §2 Business Model |
+  | Market share, named competitors, relative positioning, moat durability | §3 Competitive Landscape |
+  | Suppliers, fabs/plants, capacity, logistics, inventory, customer concentration | §4 Supply Chain Positioning |
+  | Headline P&L, margins, cash flow, balance sheet, liquidity, capital allocation | §5 Financial Strength |
+  | Every valuation multiple, DCF/SOTP, price targets, analyst ratings, beta/ownership | §6 Valuation |
+  | Risks, litigation, regulation, credit ratings, recent news and events | §7 Risks |
+
+  Rules:
+  - State an owned fact **in full exactly once** — in its owning section — with the number,
+    the period it covers, and its analytical implication.
+  - Outside its owning section, **reference it without restating the number**: "at the
+    forward multiple discussed in Section 6", "the FY2025 loss detailed in Section 5".
+  - You may rely on any fact your argument needs. You may not re-derive, re-quantify or
+    re-explain a fact another section owns.
+  - Current price, market capitalisation and the report date already appear in the report
+    header. Do not restate them unless they are the direct subject of your analysis.
+  - If your section genuinely cannot make its argument without an owned number, state it
+    once and attribute the ownership ("as Section 5 establishes, ...").
+
+tension_analysis: |
+  **Surface contradictions — do not resolve them prematurely.**
+
+  A report that reads as internally consistent when the underlying evidence is not has
+  hidden its most useful information. Where the evidence pulls in two directions, say so
+  explicitly, put numbers on both sides, and state which side you weight more heavily and why.
+
+  Interrogate at least these four axes, to the extent they fall inside your section's scope:
+
+  | Axis | The question |
+  |---|---|
+  | Revenue growth vs. margins | Is growth being bought — with price, mix, opex, or incentives? Does incremental revenue carry incremental profit? |
+  | Earnings vs. cash flow | Does net income convert to free cash flow? If not, track working capital, capitalised costs, stock comp and one-offs. |
+  | Narrative vs. operating evidence | Does management's stated strategy show up in segment numbers, capex, headcount and disclosure — or only in the language? |
+  | Valuation vs. fundamentals | Does the multiple embed a trajectory the operating data does not yet support, in either direction? |
+
+  Rules:
+  - A tension is only worth reporting if you can quantify both sides. "Margins are under
+    pressure" is not a tension; "revenue +18% y/y while gross margin fell 340bp" is.
+  - State the tension, then **take a position on it**. Do not present both sides and stop.
+  - If you looked and the evidence genuinely agrees, say so once and move on. Do not
+    manufacture tension for its own sake.
+  - These tensions are deliberate content, not defects to be smoothed away. Do not soften
+    a contradiction to make the prose read cleanly.
+  - Respect fact ownership: interrogate the tension using the facts your section owns,
+    and reference — do not restate — numbers owned by another section.
+
+claim_status_rule: |
+  **Source priority (use the highest-priority source available for each claim):**
+  1. SEC filings (10-K, 10-Q, 8-K) — authoritative for all disclosed facts
+  2. MCP tool results (yfinance, OpenBB) — authoritative for current market data
+  3. structured/ JSON artifacts — derived from sources 1-2, each with _meta provenance
+  4. Wikipedia and general web pages — background context only, never cite for financial data
+
+  **Reconciliation rule:** When two sources disagree on a number, use the SEC filing value.
+  If no SEC value exists, use the structured/ artifact. Note the discrepancy explicitly:
+  "Note: [source A] reports X while [source B] reports Y; using SEC filing value."
+
+  **Citation rule:** Every quantitative claim MUST carry an inline citation in the form
+  [^<source-id>], where <source-id> is the id of a file in sources/ or structured/
+  (e.g. [^2026-07-30_sec_10q], [^price_targets_yahoo]). New web findings must be saved
+  to sources/ FIRST, then cited by their new id. A claim you cannot cite gets the prefix
+  [UNVERIFIED] so downstream writers know to validate or omit it.
+
+  **Claim-status rule:** Every forward-looking or non-historical number MUST carry its
+  status tag. A downstream writer cannot recover this from the number alone — an unlabelled
+  forecast becomes an implied fact. Tag each number as exactly one of:
+  - [REPORTED] — actuals a company has filed or announced (10-K/10-Q/8-K, press release)
+  - [GUIDANCE] — management's own forecast; name the venue and date (earnings call, 8-K)
+  - [CONSENSUS] — sell-side aggregate estimate; name the provider and as-of date
+  - [ESTIMATE] — a single analyst's or your own derived figure; state the assumption behind it
+  Example: "FY2027 revenue of $9.8B [CONSENSUS, yfinance, as of 2026-07-30] against
+  management's $9.5-9.7B [GUIDANCE, Q3 FY2026 call, 2026-05-20] [^2026-07-30_research_answer_r1-guidance]."
+  Never blend the four in one sentence without labels, and never report a [GUIDANCE] or
+  [CONSENSUS] figure as though it were [REPORTED]. Where guidance and consensus diverge
+  materially, record the gap explicitly — it is itself a finding.
+
+sections:
+  profile:
+    title: "Company Profile"
+    wiki_page: profile
+    word_target_base: 1000
+    seed_questions:
+      - "When was the company founded, by whom, and which milestones (IPO, major acquisitions with dollar amounts, strategic pivots) directly explain its current competitive position?"
+      - "What are the current products, services, customer segments and geographies, and roughly how much revenue does each contribute?"
+      - "Who are the CEO, CFO and other key executives, what are their tenures and track records, and have there been leadership changes in the last 24 months?"
+      - "What are the most significant corporate developments of the past 12 months — earnings surprises, M&A, restructurings, capital-markets activity — and how did the market react to each?"
+      - "What is the central tension or debate in the investment case today, as framed by bulls versus bears, and what evidence does each side lean on?"
+    research_guidance: |
+      Persona: an investigative business journalist specializing in corporate histories and
+      leadership — founding stories, pivotal decisions, leadership transitions, the cultural
+      DNA that shapes strategy. Gather the raw material for an extended narrative profile:
+      founding date and founders; major milestones, mergers, acquisitions and pivots (with
+      dollar amounts and dates); current products, services, geographic and customer
+      segments; business model and revenue streams; headline financial metrics; recent
+      company news with market impact. Every milestone must pass the test "would a
+      portfolio manager care?" — skip colorful anecdotes and biographical detail unless
+      they directly explain the current business model. Cross-search adjacent sections'
+      material: customer concentration often hides in financial/business_model sources;
+      board and governance changes in risk_news sources.
+    write_guidance: |
+      Structure: open with a 1-paragraph executive summary (what the company does, scale —
+      revenue, market cap, employees — and why it is interesting as an investment). Then
+      `### History and Key Milestones` (~250 base words): founding date, founders, IPO,
+      and ONLY milestones that explain the current competitive position. Then
+      `### Core Business and Investment Highlights` (1-3 paragraphs): revenue segments
+      with approximate size and growth, how the company actually makes money, sources of
+      competitive advantage, the metrics investors track, and the central tension in the
+      investment case — end each paragraph with its investment implication. Then
+      `### Recent Developments` (1 paragraph): the past 12 months' material developments
+      with figures, dates, and why each matters. First reference uses the full legal name
+      plus ticker in parens. Begin with the exact heading `## 1. Company Profile`;
+      subsections use ### only.
+    hard_checks:
+      - "startswith: ## 1. Company Profile"
+      - 'not_regex: ^## [\s\S]*?^## '
+    subscribes_to:
+      - profile
+      - wikipedia
+      - news
+
+  business_model:
+    title: "Business Model"
+    wiki_page: business_model
+    word_target_base: 1300
+    seed_questions:
+      - "What is the revenue breakdown by segment and by geography ($ and %, most recent fiscal year and TTM), and which segments are growing or shrinking fastest?"
+      - "What are gross and operating margins by segment, how have they trended over three years, and what drives the changes — mix, pricing, opex, incentives?"
+      - "How does the company monetize (recurring vs one-time, B2B vs B2C, pricing model), and is there customer concentration above 10% of revenue?"
+      - "What are the two or three most durable competitive moats, quantified (retention rates, switching costs, share, scale metrics), and are they strengthening or eroding versus the top competitors?"
+      - "How is capital allocated across R&D, capex, M&A, buybacks and dividends (with dollar amounts), and what growth drivers or product pipeline does management guide to?"
+      - "What TAM/SAM does each major segment address, at what current penetration, and what does that imply for growth headroom?"
+    research_guidance: |
+      Persona: a management consultant specializing in business model analysis and unit
+      economics — how the company creates, delivers, and captures value. Gather: segment
+      and geographic revenue breakdowns ($ and %); YoY growth by segment; named products
+      and services with segment membership, launch dates and disclosed pricing; anything
+      discontinued or pivoted in the last 12 months and the upcoming pipeline; sales and
+      distribution model; revenue types (hardware, subscription, licensing, services);
+      customer concentration (>10% customers); disclosed seasonality language from the
+      10-K MD&A; margins by segment; R&D/SG&A/COGS attribution; capex; growth drivers and
+      forward guidance; key ratios and peer comparisons; moats and capital-return strategy.
+      Prefer SEC-filed segment tables over press coverage; label every forward number per
+      the claim-status rule.
+    write_guidance: |
+      Structure into EXACTLY these subsections with base word budgets:
+      `### Revenue Mix & Segments` (~300): core businesses, one summary revenue-by-segment
+      table, customer segments, concentration, monetization model, TAM/SAM/share and
+      growth trajectory for the primary market. `### Monetization & Margin Dynamics`
+      (~250): margin structure by segment with one 3-4 year trend table; seasonality;
+      mix shifts, operating leverage, margin trade-offs; peers compared in prose, not a
+      second table. `### Competitive Advantages` (~300): the 2-3 moats that most protect
+      the investment case, with EVIDENCE — do not enumerate every possible moat.
+      `### Growth Drivers & Capital Allocation` (~320): organic growth vectors, launches
+      and pivots, option-value segments; capital allocation summary (capex, buybacks,
+      dividends, M&A), one table max; completed or announced corporate actions (spin-offs,
+      divestitures, carve-outs) with date, consideration, and effect on remaining revenue
+      mix and margins — a divestiture that removes a low-margin segment flatters group
+      margins without improving anything; say so when that is what happened; label pending
+      transactions with expected close and conditions. `### Risks to the Model` (~100):
+      a 2-3 sentence bridge naming the key structural tensions only. Never cite the same
+      number in more than one subsection. Begin with the exact heading
+      `## 2. Business Model`; subsections use ### only.
+    hard_checks:
+      - "startswith: ## 2. Business Model"
+      - 'not_regex: ^## [\s\S]*?^## '
+    subscribes_to:
+      - filings
+      - transcript
+      - news
+
+  competitive:
+    title: "Competitive Landscape"
+    wiki_page: competitive
+    word_target_base: 1750
+    seed_questions:
+      - "Who are the top direct competitors in each major segment, with revenue scale and market share relative to the company?"
+      - "Where is unit and dollar market share being gained or lost, to whom, and is each shift structural (product, brand, price) or cyclical?"
+      - "For each significant competitor, what specific advantage or threat do they pose, and what vulnerability or limitation do they have relative to the company?"
+      - "Which emerging, adjacent or potential entrants could disrupt the market on a 1-3 and 3-5 year horizon, and how well positioned is the company to respond or lead?"
+      - "What is the evidence on industry pricing power — is competition intensifying or easing, and what has that done to margins across the peer group?"
+      - "Where does consensus or management guidance project the company's market share in 12-18 months, and is any projected share loss in a growing TAM (benign) or a flat TAM (threatening)?"
+    research_guidance: |
+      Persona: a strategy consultant with deep expertise in competitive dynamics, market
+      structure, and Porter's Five Forces. Gather: competitors and their value
+      propositions with market share; for significant competitors — scale (revenue,
+      units, volume) vs the subject, specific advantage or threat (technology, cost,
+      geography, lineup), product-line differences and competitiveness by segment,
+      upcoming-product changes, and any disadvantage or vulnerability; emerging and
+      adjacent competitors with disruption risk; trends in the competitive environment —
+      where share moves, whether losses are structural or cyclical, evidence of rising or
+      falling pricing power, and where profit, investment and focus sit across peers.
+      Source market-share numbers from industry reports (IDC, Gartner, Statista) where
+      possible, and record who measured what and when.
+    write_guidance: |
+      Cover: main competitors (direct, adjacent, emerging) and their value propositions;
+      per-competitor comparison of revenue scale, share, product-lineup differences,
+      advantages/threats and vulnerabilities; competitive-environment trends — quantify
+      trajectory with current share estimates AND the 12-18 month projection, and
+      distinguish share loss in a growing vs flat TAM; disruptors and adjacent-market
+      risk; ONE peer comparison table (revenue, margins, growth, valuation multiples) —
+      sanity-check every number and footnote any implausible multiple rather than
+      presenting it silently. Close with a `### SWOT` table — four rows, 3-4 ranked items
+      each; every cell carries a number or citation ("strong brand" is not an entry;
+      "brand supports a 340bp gross-margin premium to the peer median" is); Strengths and
+      Weaknesses are INTERNAL and within management's control, Opportunities and Threats
+      EXTERNAL (a competitor's roadmap is a Threat, not a Weakness); Opportunities carry
+      market sizing, Threats a probability or timeframe; the SWOT compresses the section's
+      argument — establish an entry in the prose or drop it. Every competitive observation
+      answers "so what for the stock?" with varied phrasing — never a repeated formula.
+      Begin with the exact heading `## 3. Competitive Landscape`; subsections ### only.
+    hard_checks:
+      - "startswith: ## 3. Competitive Landscape"
+      - 'not_regex: ^## [\s\S]*?^## '
+    subscribes_to:
+      - filings
+      - transcript
+      - news
+      - peers_candidates
+
+  supply_chain:
+    title: "Supply Chain Positioning"
+    wiki_page: supply_chain
+    word_target_base: 1650
+    seed_questions:
+      - "Who are the key suppliers and manufacturing partners, and which inputs are single-source or limited-source dependencies?"
+      - "What is the geographic footprint of the supply chain, and what tariff, sanctions and trade-route exposure does it carry — quantified where the company discloses it?"
+      - "What do inventory days, purchase obligations and working-capital trends say about demand visibility and margin risk, versus peers and the company's own history?"
+      - "What supply chain disruptions, capacity changes or vertical-integration decisions have occurred recently, and at what cost or benefit?"
+      - "What customer concentration and downstream distribution dependencies exist (>10% customers, channel structure, distributor terms)?"
+    research_guidance: |
+      Persona: a supply chain analyst with expertise in manufacturing, logistics,
+      procurement, and trade policy — vendor dependencies, geographic concentration risk,
+      inventory strategy, operational resilience. Gather: key suppliers and manufacturing
+      partners; input dependencies (raw materials, components, critical inputs); supplier
+      concentration (single/limited source); geographic exposure (countries, regions,
+      trade routes); geopolitical risks (tariffs, sanctions, restrictions, instability);
+      logistics and distribution infrastructure; inventory management approach and
+      working-capital implications; recent disruptions or changes; vertical integration
+      vs outsourcing decisions; downstream channels and customer dependencies. Purchase
+      commitments and supply obligations often sit in financial-statement footnotes —
+      search the financial and risk material too.
+    write_guidance: |
+      Cover: the company's role in the upstream (supplier-side) and downstream
+      (customer/distribution) value chain; key suppliers, partners and input
+      dependencies; supplier concentration risk quantified; geographic exposure with
+      tariff and sanctions exposure; logistics, inventory approach and working-capital
+      implications; recent disruptions and vertical-integration decisions; downstream
+      channels and customer concentration. CRITICAL — for every supply chain element,
+      state the investment implication explicitly: not "TSMC is a single-source supplier"
+      but what that concentration means for earnings risk, margin trajectory, or
+      competitive durability; quantify revenue or margin at risk with probability-weighted
+      framing; contextualize every metric (inventory days, working-capital ratios, capex
+      intensity) against peers or the company's own history — a number without context is
+      a fact, a number with context is insight. Use proper em-dashes (—), no formulaic
+      transitions, no throat-clearing. Begin with the exact heading
+      `## 4. Supply Chain Positioning`; subsections ### only.
+    hard_checks:
+      - "startswith: ## 4. Supply Chain Positioning"
+      - 'not_regex: ^## [\s\S]*?^## '
+    subscribes_to:
+      - filings
+      - news
+
+  financial:
+    title: "Financial Strength"
+    wiki_page: financial
+    word_target_base: 2300
+    seed_questions:
+      - "What are the 3-5 year trends in revenue, gross/operating/net margins and free cash flow, and what drove each inflection?"
+      - "Does net income convert to cash — what are OCF/NI and FCF/NI over 3+ years, and which specific line items (stock comp, accruals, deferred taxes, working capital, one-offs) explain any gap?"
+      - "What is the leverage picture — debt levels and maturity profile, interest coverage, covenants and remaining headroom, credit ratings and recent actions?"
+      - "What is ROIC (NOPAT / invested capital) over 3+ years, how does it compare to the company's cost of capital, and is the trend improving or deteriorating?"
+      - "How has capital been allocated across dividends, buybacks, reinvestment and M&A, and what does the record say about management's discipline?"
+      - "How sensitive is free cash flow to a plausible revenue decline or margin compression scenario?"
+    research_guidance: |
+      Persona: a forensic accountant and financial analyst specializing in earnings
+      quality, cash flow analysis, and balance sheet forensics — red flags, non-recurring
+      items, aggressive accounting, operating leverage. Gather: revenue trends (3-5 years,
+      YoY, organic vs inorganic); margin analysis with drivers; cash generation (OCF, FCF,
+      conversion ratio); balance sheet strength (cash, debt, leverage, ratings); working
+      capital (DSO, DIO, DPO, cash conversion cycle); ratios vs peers (ROE, ROA, ROIC,
+      turnover); capex levels and trends; earnings quality (accruals, one-timers,
+      adjustments, non-GAAP exclusions that recur); TTM and forward estimates vs history;
+      segment-level performance. Record the arithmetic inputs (operating income, tax rate,
+      invested capital) so the writer can derive ROIC rather than assert it.
+    write_guidance: |
+      Cover: financial leverage (debt, interest obligations, ratings, maturity profile,
+      covenants — tests, headroom, breach consequences); operating leverage (fixed vs
+      variable costs, scalability, margin sensitivity); return on capital — derive ROIC
+      as NOPAT / invested capital with a multi-year trend and compare it to the cost of
+      capital (a business earning below its WACC destroys value while growing; that
+      verdict belongs here); earnings quality — cash conversion (OCF÷NI and FCF÷NI over
+      3+ years; a ratio persistently below 1.0 needs an explanation, not a mention), the
+      accrual component and its direction, the specific line items driving any gap (SBC,
+      deferred taxes, impairments, working capital), whether promoted non-GAAP figures
+      exclude recurring costs, and a plain verdict on whether reported earnings overstate
+      or understate cash generation and by roughly how much; cash flow and working
+      capital with at least one explicit sensitivity scenario ("if revenue declines X%,
+      FCF falls to $Y"); capital allocation in flowing prose, not bullets; ONE peer table
+      benchmarking margins, returns and leverage against 3-5 peers — peer data appears
+      only there. Never present the same number in two subsections; no bullet lists
+      anywhere — prose paragraphs and tables only. Begin with the exact heading
+      `## 5. Financial Strength`; subsections ### only.
+    hard_checks:
+      - "startswith: ## 5. Financial Strength"
+      - 'not_regex: ^## [\s\S]*?^## '
+    subscribes_to:
+      - financials
+      - filings
+      - transcript
+
+  valuation:
+    title: "Valuation"
+    wiki_page: valuation
+    word_target_base: 2300
+    seed_questions:
+      - "What do consensus FY+1/FY+2 EPS and revenue estimates imply for growth and margins, and how have revisions trended over 30/90 days — both the level move and the breadth of analysts revising each way?"
+      - "What are the current multiples (P/E, EV/EBITDA, EV/Revenue, PEG) versus the stock's own 3-5 year history and versus named peers, and what explains any premium or discount?"
+      - "What is the sell-side price-target distribution (low/mean/median/high with implied upside), which firms changed targets recently and in which direction, and are opinions clustered or polarized?"
+      - "What DCF inputs are defensible for this business (growth trajectory, margin path, WACC components, terminal assumptions), and what fair value do they produce?"
+      - "What operating assumptions — not just exit multiples — differentiate a bear, base and bull case, and what price and return does each imply from the current level?"
+      - "What is the market pricing in that the operating data does or does not support — where, specifically, could consensus be wrong?"
+    research_guidance: |
+      Persona: a valuation specialist from investment banking / equity research — DCF
+      models, comparable multiples, and the gap between market pricing and intrinsic
+      value; skilled at identifying what assumptions are priced in. Gather: current
+      multiples (P/E, P/S, P/B, EV/EBITDA, EV/Revenue, PEG); historical ranges (3-5 year
+      highs/lows/averages); peer multiples; price targets (low/mean/median/high, analyst
+      count) and rating distribution with recent changes; DCF inputs (growth, margin
+      trajectory, WACC components, terminal value); SOTP considerations; forward
+      estimates and implied growth; premium/discount drivers vs peers; recent re-rating
+      catalysts; volatility, liquidity, ownership character (institutional, hedge fund,
+      retail/meme), macro sensitivities. Estimates and revisions data live in
+      structured/estimates_yahoo.json and eps_revisions_yahoo.json; targets in
+      price_targets_yahoo.json — cite those ids.
+    write_guidance: |
+      Cover: appropriate methodologies (income-based DCF, asset-based, market-based
+      comps, LBO where relevant) with the inputs that matter; a peer multiples table
+      (P/E, EV/EBITDA, EV/Revenue) from named peers; historical valuation context —
+      premium or discount to the stock's own 3-5 year averages; ratings and analyst
+      opinion including clustering vs polarization; volatility, liquidity, ownership
+      character and macro sensitivity. Consensus estimates and revisions: state consensus
+      EPS and revenue for current and next fiscal year with analyst count and dispersion,
+      then the revision picture — which matters more than the level: how far consensus
+      moved over 90 days and how many analysts moved each way over 30; reconcile
+      revisions against the multiple — a stock can look expensive against a stale
+      estimate and cheap against a rising one, and deciding which is true is the most
+      important thing this section can establish; wide low-high dispersion is itself a
+      finding — say what the two camps assume. Price-target distribution: mean/median/
+      high/low with implied moves, the spread as disagreement, named firms behind recent
+      changes; treat targets as a sentiment reading, not a valuation, and state whether
+      your analysis lands above or below consensus and why. Close with a bear/base/bull
+      table: rows for the operating assumption (revenue or EPS), exit multiple, implied
+      price, implied return; anchor the base case on consensus; vary the OPERATING
+      drivers between cases, not the multiple alone; assign rough probabilities and name
+      the variable the outcome is most sensitive to — every cell defensible from data in
+      this report. State each key multiple with full context ONCE. No bullet lists.
+      Begin with the exact heading `## 6. Valuation`; subsections ### only.
+    hard_checks:
+      - "startswith: ## 6. Valuation"
+      - 'not_regex: ^## [\s\S]*?^## '
+    subscribes_to:
+      - financials
+      - estimates
+      - targets
+      - filings
+      - transcript
+
+  risk_news:
+    title: "Risks"
+    wiki_page: risk_news
+    word_target_base: 2700
+    seed_questions:
+      - "What material news events of the last 6-12 months (earnings, launches, leadership changes, M&A, capital-markets actions) could change the thesis, and how did the market react to each?"
+      - "What regulatory actions, litigation and compliance exposures exist — which agencies and cases, at what stage, with what potential financial impact?"
+      - "Which macro exposures (trade policy and tariffs, rates and credit cycle, recession sensitivity, currency, end-market or policy-regime concentration) would break the thesis even if the company executes perfectly, and what does the 10-K Item 7A quantify?"
+      - "What upcoming dated catalysts — earnings date, product or regulatory decisions, contract renewals, lock-ups, debt maturities, legal milestones — could move the stock, and in which direction?"
+      - "Which risks are already priced in versus underappreciated, judging by recent rating changes, sentiment shifts and ownership moves?"
+    research_guidance: |
+      Persona: a compliance officer and risk analyst — regulatory affairs, litigation
+      analysis, enterprise risk; identifies material risks underappreciated by the
+      market, assesses probability and severity, tracks re-pricing catalysts. Gather:
+      recent material news events; regulatory actions and investigations; legal
+      proceedings and contingent liabilities; operational risks (technology, cyber,
+      execution, key person); financial risks (liquidity, credit, currency, rates);
+      market and competitive risks (disruption, commoditization, demand shifts);
+      geopolitical and macro risks (trade policy, sanctions, recession sensitivity); ESG
+      and reputational risks; upcoming catalysts WITH DATES (earnings, launches,
+      regulatory decisions, renewals); recent analyst rating changes and sentiment.
+      Every event needs its date; every catalyst needs a date or dated window or it is
+      not a catalyst. The events calendar lives in structured/events_calendar_yahoo.json.
+    write_guidance: |
+      Cover: recent corporate developments with dates, figures and significance;
+      regulatory actions, legal proceedings and compliance risks with specific cases,
+      agencies and potential impact; partnerships, M&A and competitive dynamics with
+      named counterparties and terms; analyst sentiment shifts (firm, old → new rating,
+      date, target change) woven into the relevant subsections, not isolated; risk
+      factors by category — operational, financial, regulatory, market. Systemic and
+      macro risk gets its OWN subsection, not a clause: trade policy, tariffs, sanctions
+      and export controls; rate and credit-cycle sensitivity; recession sensitivity and
+      cycle position; currency; concentration in a single end-market, geography or
+      policy regime — the test: if the company executes its plan perfectly, what macro
+      conditions still break the thesis? Distinguish factors that add volatility from
+      those that change terminal value; cite 10-K Item 7A quantified exposures as
+      numbers, not adjectives. Close with a catalyst calendar TABLE (columns: Date |
+      Event | Why it matters | Direction of risk), nearest first, every row carrying a
+      real date or dated window, scheduled certainties marked apart from expected
+      events, next earnings date included. Prioritize risks by materiality; for each
+      major risk assess probability, magnitude, mitigants, and how the market prices it;
+      distinguish well-known risks already priced in from underappreciated ones. Tone
+      exemplar: fact, then implication, then market-pricing judgment. Open with a direct
+      analytical claim, never "This section covers...". No bullet lists — prose and
+      tables only. Begin with the exact heading `## 7. Risks`; subsections ### only.
+    hard_checks:
+      - "startswith: ## 7. Risks"
+      - 'not_regex: ^## [\s\S]*?^## '
+    subscribes_to:
+      - news
+      - filings
+      - calendar

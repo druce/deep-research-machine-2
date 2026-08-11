@@ -50,8 +50,8 @@ dependencies = [
 ]
 
 [dependency-groups]
-# setuptools/wheel are the build backend; kept in dev so tests/test_packaging.py can
-# drive an in-process wheel build offline (setuptools is not otherwise in the venv).
+# setuptools/wheel are the build backend; kept in dev so packaging can be exercised
+# offline (setuptools is not otherwise in the venv).
 dev = ["pytest>=8.0", "setuptools>=68", "wheel"]
 
 [tool.pytest.ini_options]
