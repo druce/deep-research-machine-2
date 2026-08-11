@@ -174,3 +174,66 @@ def test_make_source_id_missing_sources_dir_raises(tmp_path):
     missing = tmp_path / "data" / "NOPE"
     with pytest.raises(FileNotFoundError):
         prov.make_source_id("news", date(2026, 8, 11), ticker_dir=missing)
+
+
+# --- write_source / read_source frontmatter round-trip -----------------------
+
+def _full_meta(sid):
+    return prov.SourceMeta(
+        id=sid, ticker="PANW", kind="sec_filing", source="SEC EDGAR",
+        url="https://www.sec.gov/Archives/example",
+        fetched_at="2026-05-21T14:22:03Z", as_of="2026-04-30",
+        title="PANW Q3 FY26 10-Q", fetch_tool="lib/fetchers/edgar.py",
+        fetch_cmd="uv run python sra.py prefetch PANW --kinds filings",
+        request={"method": "GET", "params": {"symbol": "PANW"}},
+        supersedes="2026-02-20_sec_10q",
+        cited_urls=["https://ir.zscaler.com/example"],
+    )
+
+
+def test_read_source_round_trips_all_fields(tmp_ticker_dir):
+    # supersedes target does not need to exist on disk for this round-trip test;
+    # write_source's archiving step is a no-op when the named source is absent
+    meta = _full_meta("2026-05-21_sec_10q")
+    path = prov.write_source(tmp_ticker_dir, meta, "<body copied from the source>")
+    read_meta, body = prov.read_source(path)
+    assert read_meta == meta
+    assert body == "<body copied from the source>"
+
+
+def test_write_source_omits_empty_optional_keys_from_frontmatter(tmp_ticker_dir):
+    # §5's example shows request/supersedes/cited_urls only when present; a bare
+    # source (none of the three) must not emit null or empty-list placeholders
+    meta = prov.SourceMeta(
+        id="2026-08-11_news", ticker="PANW", kind="news", source="Yahoo Finance",
+        url="https://finance.yahoo.com/quote/PANW/news",
+        fetched_at="2026-08-11T12:00:00Z", as_of="2026-08-11",
+        title="PANW news roundup", fetch_tool="lib/fetchers/news.py",
+        fetch_cmd="uv run python sra.py prefetch PANW --kinds news",
+    )
+    path = prov.write_source(tmp_ticker_dir, meta, "body text")
+    text = path.read_text(encoding="utf-8")
+    assert "request" not in text
+    assert "supersedes" not in text
+    assert "cited_urls" not in text
+
+
+def test_read_source_fills_defaults_for_omitted_optional_keys(tmp_ticker_dir):
+    meta = prov.SourceMeta(
+        id="2026-08-11_news", ticker="PANW", kind="news", source="Yahoo Finance",
+        url="https://finance.yahoo.com/quote/PANW/news",
+        fetched_at="2026-08-11T12:00:00Z", as_of="2026-08-11",
+        title="PANW news roundup", fetch_tool="lib/fetchers/news.py",
+        fetch_cmd="uv run python sra.py prefetch PANW --kinds news",
+    )
+    path = prov.write_source(tmp_ticker_dir, meta, "body text")
+    read_meta, _ = prov.read_source(path)
+    assert read_meta.request is None
+    assert read_meta.supersedes is None
+    assert read_meta.cited_urls == []
+
+
+# --- resolve_source ------------------------------------------------------
+
+def test_resolve_source_returns_none_when_neither_exists(tmp_ticker_dir):
+    assert prov.resolve_source(tmp_ticker_dir, "2026-08-11_news") is None

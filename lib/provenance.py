@@ -4,18 +4,21 @@ This is the safety-critical module that keeps model-generated text out of eviden
 directories and makes every citation resolvable. See sra6-spec.md §5 (sources/),
 §6 (structured/), and §20 (lib/provenance.py module contract).
 
-This module currently provides only the foundation: the two disjoint kind sets, the
-two metadata dataclasses, and `make_source_id`. Writers and resolvers (`write_source`,
-`resolve_source`, `read_source`, `write_structured`, `write_derived`, `write_answer`)
-are implemented in later tasks.
+This module provides the two disjoint kind sets, the two metadata dataclasses,
+`make_source_id`, and the bronze source I/O: `write_source`, `resolve_source`, and
+`read_source`. `write_structured`, `write_derived`, and `write_answer` are
+implemented in later tasks.
 """
 
 from __future__ import annotations
 
 import re
+import shutil
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+
+import frontmatter
 
 # Valid under sources/ (§5).
 BRONZE_KINDS = frozenset({
@@ -113,3 +116,124 @@ def make_source_id(kind: str, on: date, topic: str | None = None, *, ticker_dir:
     while f"{base}_{n}" in taken:
         n += 1
     return f"{base}_{n}"
+
+
+def write_source(
+    ticker_dir: Path, meta: SourceMeta, body: str, *, today: date | None = None
+) -> Path:
+    """Write a bronze document to `sources/<id>.md` (§5, §20).
+
+    Raises `ValueError` if `meta.kind` is not in `BRONZE_KINDS` (this is where
+    `MODEL_KINDS` are rejected — model output never lands under `sources/`).
+    Raises `FileExistsError` if `sources/<id>.md` already exists: sources are
+    immutable, so a refresh always writes a new id rather than overwriting.
+
+    If `meta.supersedes` names a source currently in `sources/`, that file is
+    moved (not rewritten) to `sources/archive/<old-id>_<today>.md` before the
+    new file is written, where `today` defaults to `date.today()` and is
+    injectable for deterministic tests. The move preserves the old file's
+    bytes exactly, frontmatter included (§5's "byte-identical" requirement).
+
+    If `meta.supersedes` names a source that is no longer in `sources/`
+    (already archived by an earlier attempt, or never existed), archiving is
+    a silent no-op and the write proceeds — this makes a half-completed
+    retry safe to re-run (§7.1).
+    """
+    if meta.kind not in BRONZE_KINDS:
+        raise ValueError(
+            f"write_source rejects kind {meta.kind!r}: not in BRONZE_KINDS "
+            f"(did you mean write_answer for a MODEL_KINDS artifact?)"
+        )
+
+    sources_dir = ticker_dir / "sources"
+    target = sources_dir / f"{meta.id}.md"
+    if target.exists():
+        raise FileExistsError(f"source already exists (sources are immutable): {target}")
+
+    if meta.supersedes:
+        old_path = sources_dir / f"{meta.supersedes}.md"
+        if old_path.exists():
+            archive_dir = sources_dir / "archive"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            stamp = (today or date.today()).isoformat()
+            archived_path = archive_dir / f"{meta.supersedes}_{stamp}.md"
+            shutil.move(str(old_path), str(archived_path))
+        # else: already archived by an earlier attempt, or never existed —
+        # idempotent no-op (§7.1); the write below still proceeds.
+
+    metadata: dict[str, object] = {
+        "id": meta.id,
+        "ticker": meta.ticker,
+        "kind": meta.kind,
+        "source": meta.source,
+        "url": meta.url,
+        "fetched_at": meta.fetched_at,
+        "as_of": meta.as_of,
+        "title": meta.title,
+        "fetch_tool": meta.fetch_tool,
+        "fetch_cmd": meta.fetch_cmd,
+    }
+    if meta.request:
+        metadata["request"] = meta.request
+    if meta.supersedes:
+        metadata["supersedes"] = meta.supersedes
+    if meta.cited_urls:
+        metadata["cited_urls"] = meta.cited_urls
+
+    post = frontmatter.Post(body, **metadata)
+    text = frontmatter.dumps(post, sort_keys=False) + "\n"
+    target.write_text(text, encoding="utf-8")
+    return target
+
+
+def resolve_source(ticker_dir: Path, source_id: str) -> Path | None:
+    """Resolve a source id to its path, current or archived (§5, §20).
+
+    Looks in `sources/` first (exact filename match); if not found there,
+    scans `sources/archive/` for a file whose id — recovered via
+    `_archived_id`, the same helper `make_source_id` uses to know which ids
+    are taken — equals `source_id`. Every id-to-path lookup (`show`,
+    citation resolution, reference building) goes through this function, so
+    no caller has to know whether a source is current or superseded.
+
+    Returns `None` if `source_id` resolves nowhere.
+    """
+    sources_dir = ticker_dir / "sources"
+    current = sources_dir / f"{source_id}.md"
+    if current.exists():
+        return current
+
+    archive_dir = sources_dir / "archive"
+    if archive_dir.is_dir():
+        for candidate in archive_dir.glob("*.md"):
+            if _archived_id(candidate.name) == source_id:
+                return candidate
+
+    return None
+
+
+def read_source(path: Path) -> tuple[SourceMeta, str]:
+    """Read a bronze document, round-tripping anything `write_source` wrote.
+
+    Optional fields omitted from frontmatter (`request`, `supersedes`,
+    `cited_urls`) are filled with `SourceMeta`'s own defaults (`None`, `None`,
+    `[]`) rather than surfacing as missing-key errors.
+    """
+    post = frontmatter.loads(path.read_text(encoding="utf-8"))
+    md = post.metadata
+    meta = SourceMeta(
+        id=md["id"],
+        ticker=md["ticker"],
+        kind=md["kind"],
+        source=md["source"],
+        url=md["url"],
+        fetched_at=md["fetched_at"],
+        as_of=md["as_of"],
+        title=md["title"],
+        fetch_tool=md["fetch_tool"],
+        fetch_cmd=md["fetch_cmd"],
+        request=md.get("request"),
+        supersedes=md.get("supersedes"),
+        cited_urls=list(md.get("cited_urls") or []),
+    )
+    return meta, post.content
