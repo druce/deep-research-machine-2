@@ -27,8 +27,10 @@ from lib.manifest import build_manifest
 # `_reject_path_traversal` is imported rather than reimplemented so the rule for
 # what counts as a bare artifact id (§8.4) has exactly one definition.
 from lib.provenance import _reject_path_traversal, resolve_artifact
-from lib.statefile import init_state, load_state, stale_kinds
+from lib.sections import SECTION_IDS, load_sections
+from lib.statefile import init_state, load_state, mark_section_dirty, save_state, stale_kinds
 from lib.validate import has_errors, validate
+from lib.wiki import append_log, update_index, wiki_lint
 
 # Provider credentials (FMP, FRED, OpenAI, Perplexity) live in .env at the repo
 # root. Loaded once here, at the single entry point, so every fetcher can just
@@ -281,6 +283,95 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1 if has_errors(findings) else 0
 
 
+def _require_initialized(ticker: str, ticker_dir: Path) -> bool:
+    if (ticker_dir / ".state.json").exists():
+        return True
+    print(f"{ticker}: not initialized (run: sra.py init {ticker})", file=sys.stderr)
+    return False
+
+
+def cmd_wiki_log(args: argparse.Namespace) -> int:
+    """Append one timestamped entry to `wiki/log.md` (§4)."""
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+    if not _require_initialized(ticker, d):
+        return 1
+    try:
+        with TickerLock(d, "wiki-log", force=args.force_lock):
+            path = append_log(d, args.entry)
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(path)
+    return 0
+
+
+def cmd_wiki_index(args: argparse.Namespace) -> int:
+    """Regenerate `wiki/00_index.md` from page frontmatter (§4)."""
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+    if not _require_initialized(ticker, d):
+        return 1
+    try:
+        with TickerLock(d, "wiki-index", force=args.force_lock):
+            path = update_index(d)
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(path)
+    return 0
+
+
+def cmd_mark_dirty(args: argparse.Namespace) -> int:
+    """Record a report section as needing regeneration (§7).
+
+    The section name is checked against `sections.yaml`: a typo would
+    otherwise create a dirty flag that nothing ever consumes, so the section
+    would silently never be rebuilt.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+    if args.section not in SECTION_IDS:
+        print(f"unknown section {args.section!r}: expected one of "
+              f"{', '.join(SECTION_IDS)}", file=sys.stderr)
+        return 1
+    if not _require_initialized(ticker, d):
+        return 1
+    try:
+        with TickerLock(d, "mark-dirty", force=args.force_lock):
+            state = load_state(d)
+            mark_section_dirty(state, args.section)
+            save_state(d, state)
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"{ticker}: marked {args.section} dirty")
+    return 0
+
+
+def cmd_wiki_lint(args: argparse.Namespace) -> int:
+    """Run the ADVISORY wiki lint and print findings as JSON (§22.1).
+
+    Always exits 0, even with findings: an advisory check that fails the build
+    is a fatal check nobody agreed to. `validate` (§8.4) is the gate that
+    fails. Read-only, so no lock.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+    if not _require_initialized(ticker, d):
+        return 1
+    print(json.dumps([asdict(f) for f in wiki_lint(d, load_sections())], indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argparse parser.
 
@@ -307,6 +398,15 @@ def build_parser() -> argparse.ArgumentParser:
     add("manifest", cmd_manifest, mutating=True)
 
     add("validate", cmd_validate, mutating=False)
+    add("wiki-index", cmd_wiki_index, mutating=True)
+    add("wiki-lint", cmd_wiki_lint, mutating=False)
+
+    sp = add("wiki-log", cmd_wiki_log, mutating=True)
+    sp.add_argument("--entry", required=True, help="log line to append")
+
+    sp = add("mark-dirty", cmd_mark_dirty, mutating=True)
+    sp.add_argument("--section", required=True,
+                    help=f"report section to mark dirty ({', '.join(SECTION_IDS)})")
 
     sp = add("show", cmd_show, mutating=False)
     sp.add_argument("id", help="artifact id (source, structured, or derived)")
