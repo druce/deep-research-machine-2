@@ -21,6 +21,14 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from lib.fetchers.registry import (
+    DEFAULT_KINDS,
+    FETCHERS,
+    KIND_STAGES,
+    STAGE_OF,
+    dependency_map,
+    run_prefetch,
+)
 from lib.grep import grep
 from lib.lock import LockHeldError, TickerLock
 from lib.manifest import build_manifest
@@ -159,6 +167,84 @@ def cmd_status(args: argparse.Namespace) -> int:
     }
     print(json.dumps(out, indent=2))
     return 0
+
+
+def _parse_kinds(raw: str) -> list[str]:
+    """Split `--kinds` into an ordered, deduped, trimmed list.
+
+    Whitespace around each entry is stripped (`"prices, technical"` is two
+    kinds, not one named `" technical"` that would fail the unknown-kind
+    check), empty entries from trailing or doubled commas are dropped, and the
+    first occurrence of a repeat wins so order is preserved.
+    """
+    return list(dict.fromkeys(k.strip() for k in raw.split(",") if k.strip()))
+
+
+def _due_kinds(state: dict, wanted: list[str], now: datetime,
+               ticker_dir: Path) -> set[str]:
+    """Registry kinds a `--stale-only` run must refetch.
+
+    A kind is due when its freshness policy says so — for a staged kind, when
+    ANY of its stages is stale — or when none of its stages was ever recorded.
+    """
+    stale = {STAGE_OF.get(k, k)
+             for k in stale_kinds(state, now, last_earnings=None,
+                                  ticker_dir=ticker_dir)}
+    never = {k for k in wanted
+             if not any(s in state["data"] for s in KIND_STAGES.get(k, (k,)))}
+    return stale | never
+
+
+def cmd_prefetch(args: argparse.Namespace) -> int:
+    """Run the registered fetchers in dependency waves (§11.1).
+
+    Exit 1 if the ticker is not initialized or a requested kind is unknown,
+    2 if any fetcher failed, else 0. Mutating, so it takes the lock.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+
+    try:
+        state = load_state(d)
+    except FileNotFoundError:
+        print(f"{ticker}: not initialized (run: sra.py init {ticker})", file=sys.stderr)
+        return 1
+
+    # The intersection (rather than DEFAULT_KINDS itself) keeps the default
+    # honest when FETCHERS is swapped out, e.g. by the CLI tests.
+    wanted = (_parse_kinds(args.kinds) if args.kinds
+              else [k for k in FETCHERS if k in DEFAULT_KINDS])
+    unknown = [k for k in wanted if k not in FETCHERS]
+    if unknown:
+        print(f"unknown kinds: {', '.join(unknown)} "
+              f"(known: {', '.join(FETCHERS)})", file=sys.stderr)
+        return 1
+
+    if args.stale_only:
+        due = _due_kinds(state, wanted, datetime.now(timezone.utc), d)
+        run_kinds = [k for k in wanted if k in due]
+    else:
+        run_kinds = wanted
+
+    # peers is the one fetcher taking an extra kwarg; it normalizes the raw
+    # split (whitespace, case, dupes) itself, so the CLI passes it untouched.
+    extra = ({"peers": {"user_peers": args.peers.split(",")}}
+             if args.peers and "peers" in run_kinds else {})
+
+    try:
+        with TickerLock(d, "prefetch", force=args.force_lock):
+            result = run_prefetch(ticker, d, state, run_kinds, FETCHERS,
+                                  dependency_map(run_kinds), extra_kwargs=extra)
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    result["skipped"] = [k for k in wanted if k not in run_kinds]
+    print(json.dumps(result, indent=2))
+    # warnings are informational; the exit code tracks `errors` only.
+    return 0 if not result["errors"] else 2
 
 
 def cmd_manifest(args: argparse.Namespace) -> int:
@@ -396,6 +482,15 @@ def build_parser() -> argparse.ArgumentParser:
     add("init", cmd_init, mutating=True)
     add("status", cmd_status, mutating=False)
     add("manifest", cmd_manifest, mutating=True)
+
+    sp = add("prefetch", cmd_prefetch, mutating=True)
+    sp.add_argument("--kinds", default=None,
+                    help=f"comma-separated data kinds (default: "
+                         f"{', '.join(DEFAULT_KINDS)})")
+    sp.add_argument("--stale-only", action="store_true",
+                    help="only fetch kinds that are stale or never fetched")
+    sp.add_argument("--peers", default=None,
+                    help="comma-separated user-provided peer list (peers fetcher only)")
 
     add("validate", cmd_validate, mutating=False)
     add("wiki-index", cmd_wiki_index, mutating=True)
