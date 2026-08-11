@@ -44,7 +44,7 @@ class SourceMeta:
     title: str
     fetch_tool: str
     fetch_cmd: str
-    request: dict | None = None
+    request: dict[str, object] | None = None
     supersedes: str | None = None
     cited_urls: list[str] = field(default_factory=list)
 
@@ -62,7 +62,7 @@ class StructuredMeta:
     provider_tool: str | None = None
     fetch_cmd: str | None = None
     url: str | None = None
-    request: dict | None = None
+    request: dict[str, object] | None = None
     fetched_at: str | None = None
     computed_at: str | None = None
     generated_at: str | None = None
@@ -79,11 +79,15 @@ def _slug(text: str) -> str:
 
 
 def _archived_id(filename: str) -> str:
-    """Recover a source id from an archived filename by stripping the trailing
-    `_<YYYY-MM-DD>.md` suffix that records when it was superseded (§5). This is safe
-    even when the id itself ends in a `_<n>` suffix, since only a trailing date-shaped
-    suffix is stripped."""
-    return re.sub(r"_\d{4}-\d{2}-\d{2}\.md$", "", filename)
+    """Recover a source id from an archived filename by stripping the extension and,
+    if present, the trailing `_<YYYY-MM-DD>` suffix that records when it was
+    superseded (§5). This is safe even when the id itself ends in a `_<n>` suffix,
+    since only a trailing date-shaped suffix is stripped. Total over any filename:
+    a name that does not carry the date suffix (non-conforming or hand-placed) still
+    has its extension stripped, so it cannot silently fail to match a base id and
+    fall out of the `taken` set (that failure mode would let two documents answer to
+    one citation key, which §5 forbids)."""
+    return re.sub(r"_\d{4}-\d{2}-\d{2}$", "", Path(filename).stem)
 
 
 def make_source_id(kind: str, on: date, topic: str | None = None, *, ticker_dir: Path) -> str:
@@ -96,9 +100,13 @@ def make_source_id(kind: str, on: date, topic: str | None = None, *, ticker_dir:
     not computable without the ticker directory. `ticker_dir` is added as a required
     keyword-only parameter to resolve that gap.
     """
-    base = f"{on.isoformat()}_{kind}" + (f"_{_slug(topic)}" if topic else "")
-    taken = {p.stem for p in (ticker_dir / "sources").glob("*.md")}
-    taken |= {_archived_id(p.name) for p in (ticker_dir / "sources" / "archive").glob("*.md")}
+    sources_dir = ticker_dir / "sources"
+    if not sources_dir.is_dir():
+        raise FileNotFoundError(f"no sources/ directory under {ticker_dir}")
+    slug = _slug(topic) if topic else ""
+    base = f"{on.isoformat()}_{kind}" + (f"_{slug}" if slug else "")
+    taken = {p.stem for p in sources_dir.glob("*.md")}
+    taken |= {_archived_id(p.name) for p in (sources_dir / "archive").glob("*.md")}
     if base not in taken:
         return base
     n = 2
