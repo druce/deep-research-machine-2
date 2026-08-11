@@ -161,16 +161,29 @@ def _check_containment(ticker_dir: Path, data_root: Path) -> list[Finding]:
 # would report a missing `_meta` on every harvested answer.
 URL_MAP_SUFFIX = ".urls.json"
 
+# §13.3 requires `derived/peers/peers_user.json`, but it records a list the user
+# typed: no url, and no antecedent artifact. No §6.2 producer shape fits that,
+# and claiming one would make the artifact's provenance assert something false
+# about where the list came from — so it is written bare and skipped here.
+# It stays resolvable by `resolve_artifact`, so naming it in a `derived_from`
+# still passes check 5.
+SHAPELESS_JSON_NAMES = frozenset({"peers_user.json"})
+
+
+def _is_shapeless(path: Path) -> bool:
+    """True for a silver JSON file that deliberately carries no `_meta`."""
+    return path.name.endswith(URL_MAP_SUFFIX) or path.name in SHAPELESS_JSON_NAMES
+
 
 def _iter_json(ticker_dir: Path) -> list[tuple[Path, bool]]:
     """Every durable JSON artifact, paired with whether it is bronze
-    (`structured/`) or silver (`derived/`). `*.urls.json` maps are excluded —
-    see `URL_MAP_SUFFIX`."""
+    (`structured/`) or silver (`derived/`). Deliberately shapeless silver files
+    are excluded — see `_is_shapeless`."""
     out: list[tuple[Path, bool]] = [
         (p, True) for p in sorted((ticker_dir / "structured").rglob("*.json"))
     ]
     out += [(p, False) for p in sorted((ticker_dir / DERIVED_SUBDIR).rglob("*.json"))
-            if not p.name.endswith(URL_MAP_SUFFIX)]
+            if not _is_shapeless(p)]
     return out
 
 

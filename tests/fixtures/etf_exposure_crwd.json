@@ -1,0 +1,17 @@
+[
+  {"etf_symbol": "CRWL",   "weight": 2.0000329, "market_value": 78331760.64},
+  {"etf_symbol": "VIRS",   "weight": 0.1646,    "market_value": 90163981.74},
+  {"etf_symbol": "SZNE",   "weight": 0.1646,    "market_value": 90163981.74},
+  {"etf_symbol": "CLOD",   "weight": 0.1360,    "market_value": 261751.68},
+  {"etf_symbol": "SPAM",   "weight": 0.1233,    "market_value": 601728.0},
+  {"etf_symbol": "VETS",   "weight": 0.1233,    "market_value": 52673720.08},
+  {"etf_symbol": "VCLO",   "weight": 0.1078904, "market_value": 397028.87},
+  {"etf_symbol": "CIBR.L", "weight": 0.0957,    "market_value": 123738927.67},
+  {"etf_symbol": "WCBR LN","weight": 0.0769205, "market_value": 29427621.3},
+  {"etf_symbol": "WEPN",   "weight": 0.0897,    "market_value": 545096.16},
+  {"etf_symbol": "FNGU",   "weight": 0.0872,    "market_value": 154052676.65},
+  {"etf_symbol": "HAKY",   "weight": 0.0804,    "market_value": 281136.78},
+  {"etf_symbol": "AINT",   "weight": 0.0783,    "market_value": 513059.4},
+  {"etf_symbol": "IWDACL.SN", "weight": 0.0020367, "market_value": 278399295256.81},
+  {"etf_symbol": "NOWEIGHT", "weight": null,    "market_value": 12345.0}
+]
