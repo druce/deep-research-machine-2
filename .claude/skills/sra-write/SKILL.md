@@ -52,8 +52,11 @@ print(json.dumps({
 PY
 ```
 
-Pick the run directory: the newest `reports/<date>/`, or today's date if none
-exists. Sections are written into `reports/<run>/sections/`.
+Pick the run directory: the newest `reports/<date>/` that has **no
+`snapshot.json`** in it, or today's date if there is none. A stamped run is an
+immutable snapshot (§15.3) — writing a section into it would overwrite the
+report `reports/latest` points at, and destroy the diff the next run is measured
+against. Sections go in `reports/<run>/sections/`.
 
 ## Step 1 — Write (ONE subagent)
 

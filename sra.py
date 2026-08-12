@@ -47,7 +47,8 @@ from lib.provenance import (
     StructuredMeta, _reject_path_traversal, read_structured, resolve_artifact,
     resolve_source, write_derived)
 from lib.render.assemble import assemble
-from lib.render.runs import resolve_run
+from lib.render.runs import (
+    is_snapshotted, link_latest, resolve_run, run_dirs, write_snapshot)
 from lib.questions import (
     DEFAULT_ORIGIN, STATUSES, add_questions, drop_question, load_questions,
     mark_answered, record_attempt)
@@ -1117,6 +1118,73 @@ def cmd_assemble(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_snapshot(args: argparse.Namespace) -> int:
+    """Stamp a report run immutable and point `reports/latest` at it (§15.3).
+
+    The stamp is what makes the run immutable in practice: `current_run` (§15.3)
+    refuses to hand a stamped directory back to the next build, so a second
+    same-day build writes `<date>_2` and §24's "diff against the first snapshot
+    must remain possible" holds.
+
+    Exit 1 when there is nothing to stamp (no run, or a run with no assembled
+    report) or when the run is already stamped.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+    if not _require_initialized(ticker, d):
+        return 1
+
+    now = _utcnow()
+    run_dir = resolve_run(d, args.run, now.date())
+    existing = run_dirs(d)
+    if not run_dir.is_dir():
+        # `current_run` has already stepped past a stamped run, so the useful
+        # message here is about the run the caller means, not the empty name it
+        # resolved to.
+        if args.run is None and existing and is_snapshotted(existing[-1]):
+            print(f"{ticker}: {existing[-1].name} is already snapshotted — "
+                  f"assemble a new run before snapshotting again (§15.3)",
+                  file=sys.stderr)
+        else:
+            print(f"{ticker}: no report run to snapshot at {run_dir} "
+                  f"(run: sra.py assemble {ticker})", file=sys.stderr)
+        return 1
+    if is_snapshotted(run_dir):
+        print(f"{ticker}: {run_dir.name} is already snapshotted — assemble a new "
+              f"run before snapshotting again (§15.3)", file=sys.stderr)
+        return 1
+    if not (run_dir / "report.md").exists():
+        print(f"{ticker}: {run_dir.name} has no report.md "
+              f"(run: sra.py assemble {ticker})", file=sys.stderr)
+        return 1
+
+    try:
+        with TickerLock(d, "snapshot", force=args.force_lock):
+            state = load_state(d)
+            consumed = list(state.get("report", {}).get("sections_dirty") or [])
+            stamp = write_snapshot(run_dir, now, sections_consumed=consumed)
+            link = link_latest(d, run_dir)
+            state["report"]["last_generated"] = now.isoformat()
+            # §7: the dirty list accumulates until regeneration consumes it —
+            # and this is the moment it was consumed, not `assemble`, since an
+            # assembly that is never snapshotted produced no report anyone reads.
+            state["report"]["sections_dirty"] = []
+            save_state(d, state)
+            append_log(d, f"snapshot: {run_dir.name}"
+                          + (f" (sections regenerated: {', '.join(consumed)})"
+                             if consumed else ""))
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    print(json.dumps({"run": run_dir.name, "path": str(run_dir),
+                      "latest": str(link), "snapshotted_at": stamp["snapshotted_at"],
+                      "sections_regenerated": consumed}, indent=2))
+    return 0
+
+
 def cmd_wiki_index(args: argparse.Namespace) -> int:
     """Regenerate `wiki/00_index.md` from page frontmatter (§4)."""
     resolved = _resolve_ticker(args)
@@ -1293,6 +1361,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "reading reports/latest/verdict.json (§16.4)")
 
     sp = add("assemble", cmd_assemble, mutating=True)
+    sp.add_argument("--run", default=None,
+                    help="run directory name under reports/ (default: the "
+                         "newest run that has not been snapshotted)")
+
+    sp = add("snapshot", cmd_snapshot, mutating=True)
     sp.add_argument("--run", default=None,
                     help="run directory name under reports/ (default: the "
                          "newest run that has not been snapshotted)")

@@ -14,11 +14,23 @@ export const meta = {
 // parallelizable: each stage reads what the previous one wrote, and the polish
 // stage in particular consumes both worklists. A pipeline would be wrong.
 //
-// args: {ticker, company, workdir, report_date, sections, char_caps}
+// args: {ticker, company, workdir, report_date, sections, char_caps, stages}
 //   workdir   absolute path to data/<TICKER>
 //   sections  [{id, title, ...}] — same shape the write wave took
+//   stages    optional subset, in §15.2 order. §23.2: a run with fewer than
+//             three dirty sections earns only the cross-section check and the
+//             conclusion/verdict, because a two-section edit does not justify
+//             rewriting the whole document. /sra-assemble makes that call — the
+//             script only honors it, and always runs the full five when the
+//             caller says nothing.
 
 const { ticker, company, workdir, report_date, sections, char_caps } = args
+
+const ALL_STAGES = ['cross_section', 'conclusion', 'critique', 'polish', 'evaluate']
+const requested = Array.isArray(args.stages) && args.stages.length
+  ? ALL_STAGES.filter((s) => args.stages.includes(s))
+  : ALL_STAGES
+const runs = (stage) => requested.includes(stage)
 
 const runDir = `${workdir}/reports/${report_date}`
 const sectionsDir = `${runDir}/sections`
@@ -119,31 +131,32 @@ const EVALUATION_SCHEMA = {
   additionalProperties: true,
 }
 
-log(`polish chain: ${sections.length} sections in reports/${report_date}`)
+log(`polish chain: ${sections.length} sections in reports/${report_date}`
+    + ` — stages: ${requested.join(', ')}`)
 
 phase('Cross-check')
-const crossCheck = await agent(
+const crossCheck = runs('cross_section') ? await agent(
   fill('cross_section.md', 'CONSISTENCY EDITOR', {}),
   { label: 'cross-check', agentType: 'sra-writer' },
-)
+) : null
 
 phase('Conclusion')
-const verdict = await agent(
+const verdict = runs('conclusion') ? await agent(
   fill('conclusion.md', 'CONCLUSION WRITER', { word_target: conclusionWords }),
   { label: 'conclusion', agentType: 'sra-writer', schema: VERDICT_SCHEMA },
-)
+) : null
 
 phase('Critique')
-const critique = await agent(
+const critique = runs('critique') ? await agent(
   fill('critique.md', 'WHOLE-REPORT CRITIC', {}),
   { label: 'critique', agentType: 'sra-writer' },
-)
+) : null
 
 phase('Polish')
-const polish = await agent(
+const polish = runs('polish') ? await agent(
   fill('polish.md', 'POLISH EDITOR', {}),
   { label: 'polish', agentType: 'sra-writer', schema: POLISH_SCHEMA },
-)
+) : null
 
 if (polish && polish.shrink_gate_passed === false) {
   // Surfaced, never swallowed: a polish pass that grew the report has failed
@@ -152,10 +165,10 @@ if (polish && polish.shrink_gate_passed === false) {
 }
 
 phase('Evaluate')
-const evaluation = await agent(
+const evaluation = runs('evaluate') ? await agent(
   fill('evaluate.md', 'INDEPENDENT ASSESSOR', {}),
   { label: 'evaluate', agentType: 'sra-writer', schema: EVALUATION_SCHEMA },
-)
+) : null
 
 return {
   report_date,
@@ -170,6 +183,7 @@ return {
   polish: polish,
   evaluation: evaluation,
   shrink_gate_passed: polish ? polish.shrink_gate_passed : null,
+  stages_requested: requested,
   stages_completed: [crossCheck, verdict, critique, polish, evaluation]
     .filter(Boolean).length,
 }
