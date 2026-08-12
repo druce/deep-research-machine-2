@@ -25,6 +25,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from lib.charts import price, sankey
 from lib.charts.base import ChartResult
 
 
@@ -45,4 +46,7 @@ def select(renderers: dict[str, Renderer], *, verdict: bool) -> Iterator[str]:
 # Populated as renderer modules land (Tasks 10.2-10.4). Order is display order:
 # `charts` reports in this sequence, and the chartbook subagent reads the
 # candidate manifests in the order they were written.
-RENDERERS: dict[str, Renderer] = {}
+RENDERERS: dict[str, Renderer] = {
+    price.CHART_NAME: Renderer(price.CHART_NAME, price.render_price_weekly),
+    sankey.CHART_NAME: Renderer(sankey.CHART_NAME, sankey.render_income_sankey),
+}
