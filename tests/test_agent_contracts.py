@@ -28,6 +28,8 @@ RESEARCHER = ROOT / ".claude" / "agents" / "sra-researcher.md"
 WRITER = ROOT / ".claude" / "agents" / "sra-writer.md"
 RESEARCH_SKILL = ROOT / ".claude" / "skills" / "sra-research" / "SKILL.md"
 PREFETCH_SKILL = ROOT / ".claude" / "skills" / "sra-prefetch" / "SKILL.md"
+CHARTBOOK_SKILL = ROOT / ".claude" / "skills" / "sra-chartbook" / "SKILL.md"
+CHARTBOOK_PROMPT = ROOT / "prompts" / "chartbook.md"
 TOPIC_PROMPTS = ROOT / "prompts" / "prefetch_research"
 
 
@@ -55,6 +57,19 @@ def registered_subcommands() -> set[str]:
 
 def named_subcommands(text: str) -> set[str]:
     return set(re.findall(r"sra\.py ([a-z][a-z-]+)", text))
+
+
+def bash_subcommands(text: str) -> set[str]:
+    """Subcommands a skill tells you to RUN, from its ```bash fences only.
+
+    Narrower than `named_subcommands` on purpose: a skill may legitimately
+    describe a phase ordering that names commands owned by a later phase, and
+    that prose is documentation rather than an instruction. What must exist
+    today is what the steps actually execute.
+    """
+    return {command
+            for block in re.findall(r"^```bash\n(.*?)^```", text, re.M | re.S)
+            for command in re.findall(r"sra\.py ([a-z][a-z-]+)", block)}
 
 
 # --- the file itself -------------------------------------------------------
@@ -343,6 +358,49 @@ def test_prefetch_answers_are_silver_and_carry_their_urls():
     assert "derived/answers/" in body
     assert "cited_urls" in body
     assert re.search(r"never .{0,20}evidence", body, re.I)
+
+
+def test_chartbook_skill_exists_and_points_at_its_rubric():
+    post = frontmatter.load(CHARTBOOK_SKILL)
+    assert post.metadata["name"] == "sra-chartbook"
+    assert post.metadata["description"].strip()
+    assert CHARTBOOK_PROMPT.exists()
+    assert "prompts/chartbook.md" in CHARTBOOK_SKILL.read_text(encoding="utf-8")
+
+
+def test_every_sra_subcommand_the_chartbook_skill_runs_is_registered():
+    """Scoped to the bash fences: the §16.4 phase-order block also names
+    `sra.py assemble`, which Phase 12 owns and which this skill never runs."""
+    named = bash_subcommands(CHARTBOOK_SKILL.read_text(encoding="utf-8"))
+    assert named <= registered_subcommands(), \
+        f"unregistered: {sorted(named - registered_subcommands())}"
+
+
+def test_chartbook_skill_renders_both_passes_in_order():
+    """§16.4: the verdict pass cannot run before the polish chain, and selecting
+    from the first pass alone yields a chartbook missing exactly the exhibits
+    the conclusion needs."""
+    body = CHARTBOOK_SKILL.read_text(encoding="utf-8")
+    plain = body.index("sra.py charts <TICKER>\n")
+    with_verdict = body.index("sra.py charts <TICKER> --verdict")
+    assert plain < with_verdict
+    assert "verdict.json" in body
+
+
+def test_chartbook_skill_dispatches_one_existing_agent():
+    """§16.2: "uses one model subagent"."""
+    body = CHARTBOOK_SKILL.read_text(encoding="utf-8")
+    named = set(re.findall(r'subagent_type: "([a-z-]+)"', body))
+    assert len(named) == 1
+    for agent in named:
+        assert (ROOT / ".claude" / "agents" / f"{agent}.md").exists(), agent
+
+
+def test_chartbook_skill_verifies_the_selection_resolves():
+    """A selected name with no PNG behind it is a hole in the assembled report."""
+    body = CHARTBOOK_SKILL.read_text(encoding="utf-8")
+    assert "chartbook.json" in body
+    assert "missing_png" in body
 
 
 def test_prefetch_answer_snippet_matches_source_meta():

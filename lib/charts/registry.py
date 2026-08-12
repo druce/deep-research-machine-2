@@ -25,7 +25,8 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from lib.charts import calendar, fundamentals, macro, peers, price, sankey
+from lib.charts import (
+    calendar, fundamentals, macro, peers, price, sankey, verdict)
 from lib.charts.base import ChartResult
 
 
@@ -61,4 +62,7 @@ RENDERERS: dict[str, Renderer] = {
     "macro_rates": Renderer("macro_rates", macro.render_macro_rates),
     "macro_market_valuation": Renderer("macro_market_valuation",
                                        macro.render_macro_market_valuation),
+    "valuation_football_field": Renderer(
+        "valuation_football_field", verdict.render_valuation_football_field,
+        requires_verdict=True),
 }
