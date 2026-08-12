@@ -126,7 +126,8 @@ def test_body_and_conclusion_are_passed_through_verbatim():
     """Sections already open with their own `## N. Title`; the template must
     not wrap or re-head them."""
     md = render_markdown(_variables())
-    assert "## 1. Company Profile\n\nPANW sells network security [^1]." in md
+    assert ("## 1. Company Profile\n\nPANW sells network security "
+            '<sup class="cite"><a id="cite-1-1" href="#ref-1">1</a></sup>.') in md
     assert "## Conclusion: Investment Thesis" in md
     assert md.count("## 1. Company Profile") == 1
 
@@ -166,7 +167,8 @@ def test_the_template_renders_no_chartbook_appendix():
 def test_references_section_is_included():
     md = render_markdown(_variables())
     assert "## References" in md
-    assert "[1] PANW FY26 10-K — SEC EDGAR" in md
+    assert ('<span class="ref-n" id="ref-1">[1]</span> PANW FY26 10-K — '
+            "SEC EDGAR") in md
 
 
 def test_sources_and_methodology_describes_the_sra6_pipeline():

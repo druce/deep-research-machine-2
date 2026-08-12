@@ -252,6 +252,79 @@ def blank_image_alts(markdown: str) -> str:
     return _IMAGE_RE.sub(lambda m: f"![]({m.group('target')})", markdown)
 
 
+# --- citation anchors -----------------------------------------------------
+
+_CITE_RE = re.compile(r"\[\^(\d+)\]")
+_REF_ENTRY_RE = re.compile(r"^\[(\d+)\]\s")
+_REFERENCES_HEADING = "## References"
+_SUPERSCRIPT_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹"
+
+
+def _superscript(n: int) -> str:
+    return "".join(_SUPERSCRIPT_DIGITS[int(digit)] for digit in str(n))
+
+
+def _backlinks(number: str, total: int) -> str:
+    """Arrows from a reference entry back to each of its call sites.
+
+    One citation gets a bare arrow; several get numbered arrows, because "which
+    of these eleven mentions did I come from" is otherwise unanswerable.
+    """
+    if total == 0:
+        return ""
+    if total == 1:
+        return f' <a class="backref" href="#cite-{number}-1">↩</a>'
+    return " " + " ".join(
+        f'<a class="backref" href="#cite-{number}-{k}">↩{_superscript(k)}</a>'
+        for k in range(1, total + 1))
+
+
+def link_citations(markdown: str) -> str:
+    """Make `[^N]` markers clickable, with return links from the references.
+
+    Pandoc's own footnotes are not usable here: a pandoc footnote may be
+    referenced once, and a heavily-cited source carries a dozen call sites. So
+    the markers become explicit anchors into the single References list, which
+    also keeps one canonical entry per source.
+
+    A marker with no matching entry is left exactly as it was. `validate` fails
+    the build on a surviving `[^`, which is a stronger signal than a silently
+    swallowed citation.
+    """
+    head, sep, tail = markdown.partition(_REFERENCES_HEADING)
+    if not sep:
+        return markdown
+
+    entries = {match.group(1) for match in
+               (_REF_ENTRY_RE.match(line) for line in tail.splitlines())
+               if match is not None}
+    counts: dict[str, int] = {}
+
+    def _mark(match: re.Match) -> str:
+        number = match.group(1)
+        if number not in entries:
+            return match.group(0)
+        counts[number] = counts.get(number, 0) + 1
+        return (f'<sup class="cite"><a id="cite-{number}-{counts[number]}" '
+                f'href="#ref-{number}">{number}</a></sup>')
+
+    head = _CITE_RE.sub(_mark, head)
+
+    lines: list[str] = []
+    for line in tail.splitlines():
+        match = _REF_ENTRY_RE.match(line)
+        if match is None:
+            lines.append(line)
+            continue
+        number = match.group(1)
+        lines.append(f'<span class="ref-n" id="ref-{number}">[{number}]</span> '
+                     f'{line[match.end():]}'
+                     f'{_backlinks(number, counts.get(number, 0))}')
+
+    rebuilt = "\n".join(lines) + ("\n" if tail.endswith("\n") else "")
+    return head + sep + rebuilt
+
+
 def postprocess(markdown: str) -> str:
     """The full markdown fix-up chain, in the one order that works.
 
@@ -262,6 +335,7 @@ def postprocess(markdown: str) -> str:
     markdown = align_numeric_columns(markdown)
     markdown = mark_scenario_tables(markdown)
     markdown = colour_signed_cells(markdown)
+    markdown = link_citations(markdown)
     return blank_image_alts(markdown)
 
 

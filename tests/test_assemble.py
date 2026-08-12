@@ -134,7 +134,8 @@ def test_draft_citations_become_numbers_in_order_of_appearance(corpus):
     ticker_dir, run_dir = corpus
     assemble(ticker_dir, run_dir)
     report = (run_dir / "report.md").read_text(encoding="utf-8")
-    assert "[^1]" in report and "[^2]" in report
+    assert 'href="#ref-1"' in report and 'href="#ref-2"' in report
+    assert "[^" not in report                          # anchored, not literal
     assert "2026-05-21_sec_10q" not in report
     assert json.loads((run_dir / "citation_map.json").read_text(encoding="utf-8")) == {
         "1": "2026-05-21_sec_10q", "2": "2026-08-01_news_sase"}
@@ -145,7 +146,9 @@ def test_references_render_in_the_assembled_markdown(corpus):
     assemble(ticker_dir, run_dir)
     report = (run_dir / "report.md").read_text(encoding="utf-8")
     assert "## References" in report
-    assert "[1] PANW Q3 FY26 10-Q — SEC EDGAR, https://www.sec.gov/x" in report
+    assert ('<span class="ref-n" id="ref-1">[1]</span> PANW Q3 FY26 10-Q — '
+            "SEC EDGAR, https://www.sec.gov/x") in report
+    assert 'href="#cite-1-1"' in report                # return link to the body
 
 
 def test_verdict_arithmetic_is_recomputed_not_trusted(corpus):

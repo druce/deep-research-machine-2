@@ -189,11 +189,15 @@ def test_citations_resolve_and_references_render_in_the_markdown(tree: Path, cap
     run_dir = _build(tree, capsys)
     report = (run_dir / "report.md").read_text(encoding="utf-8")
 
-    assert "[^1]" in report and "[^2]" in report
+    assert 'href="#ref-1"' in report and 'href="#ref-2"' in report
+    assert "[^" not in report                          # anchored, not literal
     assert "2026-05-21_sec_10q" not in report          # renumbered, not leaked
     assert "## References" in report
-    assert "[1] PANW Q3 FY26 10-Q — SEC EDGAR, https://www.sec.gov/" in report
-    assert "[2] SASE competition intensifies" in report
+    assert ('<span class="ref-n" id="ref-1">[1]</span> PANW Q3 FY26 10-Q — '
+            "SEC EDGAR, https://www.sec.gov/") in report
+    assert ('<span class="ref-n" id="ref-2">[2]</span> SASE competition '
+            "intensifies") in report
+    assert 'href="#cite-1-1"' in report                # return link to the body
 
     citation_map = json.loads((run_dir / "citation_map.json").read_text(encoding="utf-8"))
     assert citation_map == {"1": "2026-05-21_sec_10q", "2": "2026-08-01_news_sase"}
