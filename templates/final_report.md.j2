@@ -107,7 +107,7 @@
 :::
 {% endif %}
 
-*Rating, fair value and probabilities are the analyst's own assumptions, not company guidance or
+*Rating, fair value and probabilities are the report writer's own assumptions, not company guidance or
 sell-side consensus. See the Conclusion for the reasoning and the tests that would falsify it.*
 {% endif %}
 
@@ -194,7 +194,7 @@ sell-side consensus. See the Conclusion for the reasoning and the tests that wou
 | Median | ${{ targets.median }} | {% if targets.upside_pct_median is not none %}<span class="chip {{ 'pos' if targets.upside_pct_median > 0 else 'neg' }}">{{ targets.upside_pct_median }}%</span>{% else %}N/A{% endif %} |
 | High | ${{ targets.high }} | {% if targets.upside_pct_high is not none %}<span class="chip {{ 'pos' if targets.upside_pct_high > 0 else 'neg' }}">{{ targets.upside_pct_high }}%</span>{% else %}N/A{% endif %} |
 
-<span class="caption">Sell-side consensus, not the analyst's own fair value. See the Investment Verdict for that.</span>
+<span class="caption">Sell-side consensus, not the report writer's own fair value. See the Investment Verdict for that.</span>
 {% endif %}
 
 <div style="page-break-after: always;"></div>
@@ -265,7 +265,7 @@ does not appear.
   sources disagree.
 - **Guidance** is management's own forecast, attributed to its venue and date.
 - **Consensus** is the sell-side aggregate, with its provider and as-of date.
-- **Assumptions** are the analyst's own, including the fair value and any scenario probabilities.
+- **Assumptions** are the report writer's own, including the fair value and any scenario probabilities.
 
 Where two sources disagree on a figure, the SEC filing value is used and the discrepancy is noted.
 A value a provider did not report is shown as absent, never as zero.

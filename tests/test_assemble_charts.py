@@ -8,6 +8,8 @@ from pathlib import Path
 from lib.render.assemble import (
     DASHBOARD_CHARTS, _body, load_chartbook, peer_table_warnings,
 )
+from lib.hard_checks import run_checks
+from lib.sections import load_sections
 from lib.validate import validate
 
 
@@ -141,3 +143,22 @@ def test_populated_peer_table_does_not_warn() -> None:
 
 def test_a_table_with_no_comparables_does_not_warn() -> None:
     assert peer_table_warnings([{"symbol": "SUBJ", "is_subject": True}]) == []
+
+
+def test_every_section_forbids_calling_the_author_the_analyst() -> None:
+    rule = r"not_regex: (?i)\bthe analyst\b"
+    for section_id, config in load_sections()["sections"].items():
+        assert rule in config["hard_checks"], f"{section_id} is missing the voice rule"
+
+
+def test_the_voice_rule_catches_the_phrase(tmp_path: Path) -> None:
+    failures = run_checks("These are the analyst's own assumptions.",
+                          [r"not_regex: (?i)\bthe analyst\b"], tmp_path)
+
+    assert len(failures) == 1
+
+
+def test_the_template_does_not_call_the_author_the_analyst() -> None:
+    text = Path("templates/final_report.md.j2").read_text(encoding="utf-8")
+
+    assert "the analyst" not in text.lower()

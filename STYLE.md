@@ -205,3 +205,7 @@ table is built from each peer's own bronze artifacts, and cites them.
 - **Ratios (P/E, EV/EBITDA)**: 1 decimal place, e.g., "18.3x"
 - **Share counts**: Express in millions or billions, e.g., "1.2 billion shares outstanding"
 - **Superscripts**: Use HTML `<sup>` tags, e.g., `<sup>1</sup>`, not caret syntax (`^1^`)
+
+- **The report refers to its author as "the report writer", never "the analyst".** Guidance
+  elsewhere in this file about writing *like* a sell-side analyst describes voice, not
+  identity — keep that. `sections.yaml` enforces this with a hard check.

@@ -21,7 +21,7 @@ match / mismatch / unresolvable. The score reflects the proportion verified.
 Pick claims that matter — headline figures, the numbers the conclusion rests on
 — not ten easy dates.
 
-**2. Completeness.** Does the report cover what a analyst deciding on this
+**2. Completeness.** Does the report cover what an investor deciding on this
 position would need? Name the material topics missing.
 
 **3. Consistency.** Do numbers and narrative agree across sections after the

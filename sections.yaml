@@ -142,6 +142,7 @@ sections:
     hard_checks:
       - "startswith: ## 1. Company Profile"
       - 'not_regex: ^## [\s\S]*?^## '
+      - 'not_regex: (?i)\bthe analyst\b'
     subscribes_to:
       - profile
       - wikipedia
@@ -192,6 +193,7 @@ sections:
     hard_checks:
       - "startswith: ## 2. Business Model"
       - 'not_regex: ^## [\s\S]*?^## '
+      - 'not_regex: (?i)\bthe analyst\b'
     subscribes_to:
       - filings
       - transcript
@@ -240,6 +242,7 @@ sections:
     hard_checks:
       - "startswith: ## 3. Competitive Landscape"
       - 'not_regex: ^## [\s\S]*?^## '
+      - 'not_regex: (?i)\bthe analyst\b'
     subscribes_to:
       - filings
       - transcript
@@ -286,6 +289,7 @@ sections:
     hard_checks:
       - "startswith: ## 4. Supply Chain Positioning"
       - 'not_regex: ^## [\s\S]*?^## '
+      - 'not_regex: (?i)\bthe analyst\b'
     subscribes_to:
       - filings
       - news
@@ -333,6 +337,7 @@ sections:
     hard_checks:
       - "startswith: ## 5. Financial Strength"
       - 'not_regex: ^## [\s\S]*?^## '
+      - 'not_regex: (?i)\bthe analyst\b'
     subscribes_to:
       - financials
       - filings
@@ -388,6 +393,7 @@ sections:
     hard_checks:
       - "startswith: ## 6. Valuation"
       - 'not_regex: ^## [\s\S]*?^## '
+      - 'not_regex: (?i)\bthe analyst\b'
     subscribes_to:
       - financials
       - estimates
@@ -443,6 +449,7 @@ sections:
     hard_checks:
       - "startswith: ## 7. Risks"
       - 'not_regex: ^## [\s\S]*?^## '
+      - 'not_regex: (?i)\bthe analyst\b'
     subscribes_to:
       - news
       - filings
