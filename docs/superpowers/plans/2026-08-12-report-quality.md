@@ -2192,3 +2192,58 @@ A cold rebuild of SPCX. Task 10's prompt changes only exercise in a full run,
 and fixing SPCX's *content* (supplying the reconciliation the gate now demands,
 rewriting the ten unclear passages) is editorial work on one report, not
 pipeline work. Both are follow-up tasks.
+
+---
+
+## Verification (2026-08-12)
+
+`uv run pytest -q -m "not integration"` → **1533 passed, 4 deselected**.
+
+`sra.py prefetch-peers SPCX` → exit 0, all five peers fetched. One warning:
+`NOC/profile: profile fetch failed`. NOC's `key_ratios_computed` and
+`technical_indicators_computed` landed anyway, which is all the peer table
+reads, so its row is complete.
+
+Re-assembled into `reports/2026-08-12_2` rather than over `2026-08-12` — the
+original run is snapshotted and immutable (§24), and `assemble` correctly
+refused to target it.
+
+| Check | Expected | Actual |
+|---|---|---|
+| `income_sankey.png` occurrences | 1 | **1** (was 3) |
+| `price_weekly.png` occurrences | 1 | **1** (was 3) |
+| literal `[^` in report.md | 0 | **0** (was 96) |
+| `href="#ref-` in report.html | > 0 | **331** |
+| `class="backref"` in report.html | > 0 | **331** |
+| "the analyst" | 0 | **0** (was 3) |
+| `$N/A` | 0 | **0** (was 20) |
+| `## Chartbook` appendix | 0 | **0** |
+| exhibits selected | — | 5 (was 7; two were dashboard duplicates) |
+
+`sra.py validate SPCX` → **exit 1**, as intended. 16 of 19 findings are against
+the OLD run and its `latest` symlink — 14 `exhibit-duplicated`, 2
+`citation-unlinked`. The new run carries **zero** of either.
+
+### One gate was weaker than the design promised
+
+Step 5 predicted a `verdict-unreconciled` finding. It did not fire, and the
+reason mattered: `check_verdict` returned early whenever
+`scenario_weighted_value` was absent, so **a writer could evade the whole check
+by omitting the field** — which is exactly what SPCX's card does (`fair_value
+38.13`, every scenario field `null`, and a `$129.81` probability-weighted
+figure sitting in the valuation prose).
+
+The design called for a check that "cannot be talked past", so
+`_SCENARIO_PROSE_RE` now detects that the section *computes* a weighted value
+while the card omits the field. It detects the discussion, never the figure —
+extracting `$129.81` from prose is fragile, noticing "probability-weighted" is
+not. Four tests cover it.
+
+With that in place the gate fires on all three SPCX verdict cards, including
+the newly assembled run.
+
+### Not fixed here
+
+SPCX's report *content* — supplying the reconciliation the gate now demands and
+rewriting the ten unclear passages — is editorial work on one report, and the
+clarity pass (W5) only exercises in a cold rebuild. Both remain follow-ups.

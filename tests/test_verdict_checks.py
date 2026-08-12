@@ -117,3 +117,42 @@ def test_run_without_a_verdict_is_not_a_finding(tmp_path: Path) -> None:
 
     assert [f for f in validate(data_root / "TEST", data_root)
             if f.code == "verdict-unreconciled"] == []
+
+
+# --- omission is not an escape hatch -------------------------------------
+
+def test_a_weighted_value_in_prose_with_no_field_fails() -> None:
+    """Without this, a writer evades every check above by leaving the field out.
+
+    The SPCX card did exactly that: fair_value 38.13, no scenario fields, and a
+    valuation section carrying a $129.81 probability-weighted scenario.
+    """
+    failures = check_verdict(
+        {"fair_value": 38.13},
+        "## 6. Valuation\n\nThe probability-weighted scenario gives $129.81.\n")
+
+    assert len(failures) == 1
+    assert "scenario_weighted_value" in failures[0]
+
+
+def test_scenario_weighted_wording_is_caught_too() -> None:
+    failures = check_verdict(
+        {"fair_value": 38.13},
+        "A scenario-weighted value of $129.81 falls out of the frame.\n")
+
+    assert len(failures) == 1
+
+
+def test_a_section_with_no_weighted_value_still_passes() -> None:
+    assert check_verdict(
+        {"fair_value": 38.13},
+        "## 6. Valuation\n\nA ten-year DCF at a 12% WACC gives $38.13.\n") == []
+
+
+def test_filling_the_field_moves_to_the_divergence_check() -> None:
+    failures = check_verdict(
+        _verdict(reconciliation=""),
+        "## 6. Valuation\n\nThe probability-weighted scenario gives $129.81.\n")
+
+    assert len(failures) == 1
+    assert "diverge" in failures[0]

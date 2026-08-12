@@ -34,6 +34,15 @@ def _number(value: object) -> float | None:
         return None
 
 
+# A section that talks about a probability-weighted value while the card omits
+# `scenario_weighted_value` evades every check below by omission. This detects
+# the DISCUSSION, never the figure: extracting "$129.81" from prose is fragile,
+# but noticing that the section computes a weighted value is not.
+_SCENARIO_PROSE_RE = re.compile(
+    r"(?i)\b(probability[- ]weighted|scenario[- ]weighted|"
+    r"expected value across (the )?scenarios)\b")
+
+
 def _mentions(text: str, value: float) -> bool:
     """Whether `text` names `value`, ignoring currency, commas and separators.
 
@@ -62,6 +71,12 @@ def check_verdict(verdict: dict, valuation_md: str) -> list[str]:
 
     weighted = _number(verdict.get("scenario_weighted_value"))
     if weighted is None:
+        match = _SCENARIO_PROSE_RE.search(valuation_md)
+        if match is not None:
+            failures.append(
+                f"the valuation section computes a {match.group(0)} value but "
+                f"verdict.json has no scenario_weighted_value — fill it, so the "
+                f"two figures can be checked against each other")
         return failures
 
     fair = _number(verdict.get("fair_value"))
