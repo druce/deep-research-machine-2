@@ -84,3 +84,11 @@ overwrites yours (§15.3). It does not trust model arithmetic here, and neither
 should you: if your number and the recomputed one differ, the recomputed one is
 what the report will show, so check yours before the mismatch becomes a
 contradiction between your prose and the card.
+
+## Do not ship a contradiction unexplained
+
+The verdict card and the valuation section state the same fair value, or they
+state both values and which governs. If a scenario-weighted figure implies a
+different rating than the headline, say so in the conclusion in the same breath
+as the rating. Never leave a reader to find the contradiction themselves — and
+never let a `base_case_probability` stand without the complement it implies.

@@ -29,6 +29,10 @@ agent. It governs *how the prose reads*. What each section must contain is
   analytical framing: this indicates/implies/suggests, a reasonable conclusion is.
 - **Where the evidence conflicts, surface the conflict rather than averaging it away.** Quantify
   both sides and say which one you weight more heavily and why.
+- **Never show two materially different values for the same quantity without naming which
+  governs and why.** A DCF fair value beside a scenario-weighted value that implies the
+  opposite rating is the report's most important sentence, not an inconsistency to leave
+  standing. Same for a probability with no stated complement.
 - Acknowledge uncertainty where it exists — do not oversell.
 - **No generic company description and no promotional language.** Cut anything that would appear
   verbatim in the company's own investor deck or an "About Us" page: founding-story color with

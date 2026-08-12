@@ -70,3 +70,30 @@ not reconcile with its stated inputs, fix the arithmetic and let the fair value
 move. Do not adjust the assumptions to preserve the number — that is reverse
 engineering a conclusion, and the polish chain will recompute the implied return
 against it anyway.
+
+## The verdict card must agree with this section
+
+If you derive a value by more than one method, `verdict.json` carries both and
+the reason one governs:
+
+```json
+{
+  "fair_value": 38.13,
+  "scenario_weighted_value": 129.81,
+  "scenario_weighted_method": "probability-weighted 2028 EV/EBITDA, 15x bear / 28x base / 35x exit",
+  "scenario_probabilities": {"bear": 0.25, "base": 0.50, "bull": 0.25},
+  "reconciliation": "..."
+}
+```
+
+State the governing method in the FIRST sentence of the valuation discussion,
+not at its end. A reader who has to reach the last paragraph to learn which
+number counts has read the section twice.
+
+`reconciliation` is required whenever the two values differ by more than 15%. It
+must name both figures, run at least 40 words, and appear VERBATIM in this
+section — a reconciliation that lives only in JSON reaches no reader. The gate is
+`lib/verdict_checks.py` and it is fatal.
+
+`scenario_probabilities` must sum to 1.0. A base-case probability with no stated
+complement tells the reader nothing.

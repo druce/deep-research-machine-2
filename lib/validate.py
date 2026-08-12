@@ -48,6 +48,7 @@ from lib.provenance import (
     read_structured,
     resolve_artifact,
 )
+from lib.verdict_checks import check_verdict
 
 # §8.4 check 7. Matched against the directory name as-is: a ticker directory is
 # created upper-cased by `sra.py init`, so a lower-cased name on disk is itself
@@ -458,6 +459,33 @@ def _check_report_exhibits(ticker_dir: Path) -> list[Finding]:
     return findings
 
 
+def _check_verdict_cards(ticker_dir: Path) -> list[Finding]:
+    """Each run's verdict card agrees with its own valuation section (§16.4).
+
+    A run with no `verdict.json` is not a finding: the gate also runs mid-build,
+    before the polish chain has produced one.
+    """
+    findings: list[Finding] = []
+    for card in sorted((ticker_dir / "reports").glob("*/verdict.json")):
+        rel = _rel(card, ticker_dir)
+        try:
+            verdict = json.loads(card.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            findings.append(Finding("error", "verdict-unreconciled", rel,
+                                    f"cannot read verdict.json: {exc}"))
+            continue
+        if not isinstance(verdict, dict):
+            findings.append(Finding("error", "verdict-unreconciled", rel,
+                                    "verdict.json: top level must be an object"))
+            continue
+        section = card.parent / "sections" / "valuation.md"
+        valuation_md = (section.read_text(encoding="utf-8")
+                        if section.exists() else "")
+        findings += [Finding("error", "verdict-unreconciled", rel, problem)
+                     for problem in check_verdict(verdict, valuation_md)]
+    return findings
+
+
 _LITERAL_MARKER_RE = re.compile(r"\[\^[^\]\s]+\]")
 
 
@@ -692,6 +720,7 @@ def validate(ticker_dir: Path, data_root: Path) -> list[Finding]:
     findings += _check_assembled_reports(ticker_dir, data_root)
     findings += _check_report_exhibits(ticker_dir)
     findings += _check_dangling_citations(ticker_dir)
+    findings += _check_verdict_cards(ticker_dir)
     findings += _check_derivations(ticker_dir, data_root)
     findings += _check_secrets(ticker_dir)
     findings += _check_recorded_requests(ticker_dir)
