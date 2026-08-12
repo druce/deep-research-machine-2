@@ -131,6 +131,101 @@ def _check_not_longer_than(value: str, text: str, base_dir: Path) -> str | None:
             f"— GREW by {mine - theirs:,}")
 
 
+def _resolve_inside(value: str, base_dir: Path) -> tuple[Path | None, str | None]:
+    """A rule's path argument, resolved under `base_dir` and confined to it.
+
+    Same containment rule as `_check_not_longer_than` (§8.4): the value is
+    interpolated into a path, and a rule reaching outside the run directory is a
+    defect whichever way it was meant.
+    """
+    candidate = Path(value)
+    if candidate.is_absolute():
+        return candidate, None
+    resolved = (base_dir / candidate).resolve()
+    try:
+        resolved.relative_to(base_dir.resolve())
+    except ValueError:
+        return None, f"{value!r} resolves outside the base directory"
+    return resolved, None
+
+
+def _split_factor(value: str) -> tuple[str, float] | None:
+    """`("<path>", factor)` from `"<path>"` or `"<path> 1.03"`; None if malformed."""
+    parts = value.split()
+    if len(parts) == 1:
+        return parts[0], 1.0
+    if len(parts) != 2:
+        return None
+    try:
+        return parts[0], float(parts[1])
+    except ValueError:
+        return None
+
+
+def _dir_words(directory: Path) -> int:
+    return sum(len(path.read_text(encoding="utf-8").split())
+               for path in sorted(directory.glob("*.md")))
+
+
+def _check_report_not_longer_than(value: str, base_dir: Path,
+                                  target: Path | None) -> str | None:
+    """Word count of the WHOLE report against a baseline directory (§18.3).
+
+    The per-section gate this supplements made every clarifying word cost a
+    deletion from the same section, which is how sentences compress into
+    fragments that parse as nothing. The report is the budget; one section may
+    grow when another shrinks to pay for it.
+    """
+    if target is None:
+        return ("report_not_longer_than: needs the file under check to locate "
+                "the current sections directory; pass target=")
+    parsed = _split_factor(value)
+    if parsed is None:
+        return f"report_not_longer_than: malformed argument {value!r}"
+    baseline, factor = parsed
+
+    other, problem = _resolve_inside(baseline, base_dir)
+    if problem is not None:
+        return f"report_not_longer_than: {problem}"
+    if other is None or not other.is_dir():
+        # Never a silent pass: a missing baseline means a path substitution went
+        # wrong, which is exactly when the gate must not disappear.
+        return f"report_not_longer_than: baseline directory not found: {baseline}"
+
+    theirs = _dir_words(other)
+    mine = _dir_words(target.parent)
+    budget = int(theirs * factor)
+    if mine <= budget:
+        return None
+    return (f"report_not_longer_than: {mine:,} words vs a budget of {budget:,} "
+            f"({theirs:,} in {other.name} × {factor:g}) — GREW by "
+            f"{mine - budget:,}")
+
+
+def _check_not_longer_than_pct(value: str, text: str,
+                               base_dir: Path) -> str | None:
+    """One section against `factor ×` its baseline word count."""
+    parsed = _split_factor(value)
+    if parsed is None or len(value.split()) != 2:
+        return (f"not_longer_than_pct: expected '<baseline file> <factor>', "
+                f"got {value!r}")
+    baseline, factor = parsed
+
+    other, problem = _resolve_inside(baseline, base_dir)
+    if problem is not None:
+        return f"not_longer_than_pct: {problem}"
+    if other is None or not other.exists():
+        return f"not_longer_than_pct: reference file not found: {baseline}"
+
+    theirs = len(other.read_text(encoding="utf-8").split())
+    mine = len(text.split())
+    budget = int(theirs * factor)
+    if mine <= budget:
+        return None
+    return (f"not_longer_than_pct: {mine:,} words vs a budget of {budget:,} "
+            f"({theirs:,} × {factor:g}) — GREW by {mine - budget:,}")
+
+
 def _check_internal_filenames(text: str) -> str | None:
     """§8.2: internal artifact names must never appear in report prose."""
     prose = CITATION_RE.sub(" ", text)
@@ -149,7 +244,8 @@ def _check_internal_filenames(text: str) -> str | None:
 VALUELESS_RULES = frozenset({"no_internal_filenames"})
 
 
-def run_checks(text: str, rules: list, base_dir: Path) -> list[str]:
+def run_checks(text: str, rules: list, base_dir: Path, *,
+               target: Path | None = None) -> list[str]:
     """Every failure message, in rule order. An empty list means the draft passes.
 
     Failures rather than results: a caller wants to know what to fix, and every
@@ -180,6 +276,10 @@ def run_checks(text: str, rules: list, base_dir: Path) -> list[str]:
             problem = _check_not_regex(value, text)
         elif name == "not_longer_than":
             problem = _check_not_longer_than(value, text, base_dir)
+        elif name == "report_not_longer_than":
+            problem = _check_report_not_longer_than(value, base_dir, target)
+        elif name == "not_longer_than_pct":
+            problem = _check_not_longer_than_pct(value, text, base_dir)
         elif name == "no_internal_filenames":
             problem = _check_internal_filenames(text)
         else:
@@ -224,7 +324,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     base_dir = Path(args.base_dir) if args.base_dir else path.parent
-    failures = run_checks(path.read_text(encoding="utf-8"), rules, base_dir)
+    failures = run_checks(path.read_text(encoding="utf-8"), rules, base_dir,
+                          target=path)
     print(json.dumps({"passed": not failures, "failures": failures}, indent=2))
     return 0 if not failures else 1
 

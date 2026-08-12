@@ -9,17 +9,27 @@ shorter. Read:
 
 ## The gate
 
-**This pass may not grow the report.** Every section you touch is checked with:
+**This pass may not grow the REPORT.** A single section may grow by up to 10% if
+another shrinks to pay for it. Every section you touch is checked with:
 
 ```bash
 uv run python -m lib.hard_checks {sections_dir}/<section>.md \
-    --rules-json '["not_longer_than: {baseline_dir}/<section>.md"]'
+    --rules-json '["report_not_longer_than: {baseline_dir}",
+                   "not_longer_than_pct: {baseline_dir}/<section>.md 1.10"]'
 ```
 
-That rule counts WORDS against the pre-polish copy. It exists because a previous
-generation of this pipeline ran a polish pass that GREW the body by 1,933 bytes
-while leaving every flagged redundancy in place, and nothing detected it. A
-polish pass that adds words has not polished anything.
+The report-level rule counts WORDS across every section against the pre-polish
+copies. It exists because a previous generation of this pipeline ran a polish
+pass that GREW the body by 1,933 bytes while leaving every flagged redundancy in
+place, and nothing detected it. A polish pass that adds words has not polished
+anything.
+
+The per-section rule replaced a hard per-section ceiling, which had its own
+failure mode: every clarifying word had to be bought with a deletion from the
+same paragraph, so sentences compressed into fragments that parse as nothing.
+"Spot pays 320.8x trailing EBITDA for AI cloud revenue that either party can
+cancel on 90 days' notice, Google's from the turn of the year" shipped that way.
+Clarity is allowed to cost words now — as long as the report pays for them.
 
 So the order of work is: **delete first, then fix.** Resolve the redundancies
 from the cross-section worklist — the non-owning section loses the number and
@@ -60,7 +70,8 @@ Overwrite the section files and the conclusion in place, then verify:
 ```bash
 for s in {section_ids}; do
   uv run python -m lib.hard_checks {sections_dir}/$s.md \
-      --rules-json '["not_longer_than: {baseline_dir}/'"$s"'.md"]'
+      --rules-json '["report_not_longer_than: {baseline_dir}",
+                     "not_longer_than_pct: {baseline_dir}/'"$s"'.md 1.10"]'
 done
 ```
 
