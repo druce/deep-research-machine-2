@@ -27,6 +27,8 @@ ROOT = Path(__file__).resolve().parent.parent
 RESEARCHER = ROOT / ".claude" / "agents" / "sra-researcher.md"
 WRITER = ROOT / ".claude" / "agents" / "sra-writer.md"
 RESEARCH_SKILL = ROOT / ".claude" / "skills" / "sra-research" / "SKILL.md"
+PREFETCH_SKILL = ROOT / ".claude" / "skills" / "sra-prefetch" / "SKILL.md"
+TOPIC_PROMPTS = ROOT / "prompts" / "prefetch_research"
 
 
 def researcher_text() -> str:
@@ -35,6 +37,10 @@ def researcher_text() -> str:
 
 def research_skill_text() -> str:
     return RESEARCH_SKILL.read_text(encoding="utf-8")
+
+
+def prefetch_skill_text() -> str:
+    return PREFETCH_SKILL.read_text(encoding="utf-8")
 
 
 def python_blocks(text: str) -> list[str]:
@@ -268,3 +274,92 @@ def test_research_skill_forbids_citing_answers():
     body = research_skill_text()
     assert re.search(r"NEVER cite an answer file", body)
     assert "cited_urls" in body and ".urls.json" in body
+
+
+# --- the prefetch skill ----------------------------------------------------
+
+def test_prefetch_skill_exists_with_frontmatter():
+    post = frontmatter.load(PREFETCH_SKILL)
+    assert post.metadata["name"] == "sra-prefetch"
+    assert post.metadata["description"].strip()
+
+
+def test_every_sra_subcommand_the_prefetch_skill_names_is_registered():
+    named = named_subcommands(prefetch_skill_text())
+    registered = registered_subcommands()
+    assert named <= registered, f"unregistered: {sorted(named - registered)}"
+
+
+def test_prefetch_skill_runs_the_whole_flow():
+    """§11: gather, macro, topics, harvest, manifest, gate."""
+    body = prefetch_skill_text()
+    for command in ("init", "prefetch", "prefetch-macro", "fetch-urls",
+                    "manifest", "validate"):
+        assert f"sra.py {command}" in body, command
+
+
+def test_prefetch_skill_initializes_macro_before_gathering_it():
+    """`prefetch-macro` exits 1 on an uninitialized `_MACRO`, and nothing else
+    in a cold build creates that tree."""
+    body = prefetch_skill_text()
+    assert "sra.py init _MACRO" in body
+    assert body.index("sra.py init _MACRO") < body.index("sra.py prefetch-macro")
+
+
+def test_prefetch_skill_names_every_topic_prompt_that_exists():
+    """§11.2's seven topics, matched against the prompt files themselves — a
+    prompt added or renamed without touching the skill is a topic that never
+    runs."""
+    topics = {p.stem for p in TOPIC_PROMPTS.glob("*.md")}
+    assert len(topics) == 7, sorted(topics)
+    body = prefetch_skill_text()
+    for topic in topics:
+        assert topic in body, topic
+    assert "prompts/prefetch_research/" in body
+
+
+def test_prefetch_skill_has_a_fallback_for_the_workflow():
+    """§11.2: `deep-research` is harness-provided, so it may not be there."""
+    body = prefetch_skill_text()
+    assert "deep-research" in body
+    assert "sra-researcher" in body
+    assert re.search(r"fallback", body, re.I)
+
+
+def test_prefetch_skill_reads_prefetch_exit_codes():
+    """A failed kind exits 2 and is degraded-but-continue; exit 1 means nothing
+    ran. A skill that treated them alike would either abort a usable build or
+    research against an empty corpus."""
+    body = prefetch_skill_text()
+    assert re.search(r"\bdegraded\b", body, re.I)
+    assert "**2**" in body and "**1**" in body
+
+
+def test_prefetch_answers_are_silver_and_carry_their_urls():
+    """§11.2: the research answer is never evidence; its `cited_urls` are what
+    `fetch-urls` turns into evidence."""
+    body = prefetch_skill_text()
+    assert "write_answer" in body
+    assert "derived/answers/" in body
+    assert "cited_urls" in body
+    assert re.search(r"never .{0,20}evidence", body, re.I)
+
+
+def test_prefetch_answer_snippet_matches_source_meta():
+    """Same guard as the researcher's: the snippet is copied verbatim by a
+    model that cannot see the dataclass."""
+    calls = [
+        node
+        for block in python_blocks(prefetch_skill_text())
+        for node in ast.walk(ast.parse(block))
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "SourceMeta"
+    ]
+    assert len(calls) == 1
+
+    passed = {kw.arg for kw in calls[0].keywords if kw.arg}
+    known = {f.name for f in fields(SourceMeta)}
+    required = {f.name for f in fields(SourceMeta)
+                if f.default is MISSING and f.default_factory is MISSING}
+    assert passed <= known, f"unknown SourceMeta fields: {sorted(passed - known)}"
+    assert required <= passed, f"missing required fields: {sorted(required - passed)}"
