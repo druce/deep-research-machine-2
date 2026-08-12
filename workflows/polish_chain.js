@@ -1,11 +1,11 @@
 export const meta = {
   name: 'sra-polish-chain',
-  description: 'cross-section check, conclusion and verdict, critique, shrink-gated polish, evaluation (spec §15.2)',
+  description: 'cross-section check, conclusion and verdict, critique, budget-gated polish, evaluation (spec §15.2)',
   phases: [
     { title: 'Cross-check', detail: 'number and narrative consistency across seven sections' },
     { title: 'Conclusion', detail: 'the verdict, key tests, monitoring dashboard, verdict.json' },
     { title: 'Critique', detail: 'whole-report review no section critic could do' },
-    { title: 'Polish', detail: 'apply the worklists under a word-count shrink gate' },
+    { title: 'Polish', detail: 'apply the worklists under a report-level word budget' },
     { title: 'Evaluate', detail: 'six-dimension score into evaluation.json' },
   ],
 }
