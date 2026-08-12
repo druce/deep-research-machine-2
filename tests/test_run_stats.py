@@ -191,3 +191,15 @@ def test_degraded_kinds_survive_the_round_trip(tmp_path: Path):
     run_dir.mkdir(parents=True)
     write_run_stats(run_dir, _stats(degraded_kinds=["transcript"]))
     assert load_run_stats(run_dir)["degraded_kinds"] == ["transcript"]
+
+
+def test_an_apportioned_count_is_marked_estimated():
+    """A phase that reports one total for several agents still counts against
+    the budget, but the record must say which entries were measured."""
+    stats = start_run(START)
+    record_subagent(stats, purpose="deep-research", input_tokens=50_000,
+                    output_tokens=2_000, estimated=True)
+    record_subagent(stats, purpose="rater", input_tokens=12_000, output_tokens=900)
+    assert stats["subagents"][0]["estimated"] is True
+    assert "estimated" not in stats["subagents"][1]
+    assert stats["totals"]["input_tokens"] == 62_000

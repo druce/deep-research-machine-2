@@ -69,11 +69,17 @@ def _tokens(value: object, field: str) -> int:
 
 def record_subagent(stats: dict, *, purpose: str, input_tokens: object,
                     output_tokens: object, section: str | None = None,
-                    round_: int | None = None) -> dict:
+                    round_: int | None = None, estimated: bool = False) -> dict:
     """Append one agent's cost and refresh the totals (§23.4).
 
     Raises `ValueError` for a purpose outside `PURPOSES` or a missing token
     count. Returns the entry it appended.
+
+    `estimated` marks a count the orchestrator derived rather than read — a
+    phase that reports one total for five agents, say. The number still counts
+    against the budget (it is the best figure available), but the record says
+    which entries are measured and which are apportioned, so nobody later reads
+    an even split as five identical agents.
     """
     if purpose not in PURPOSES:
         raise ValueError(
@@ -87,6 +93,8 @@ def record_subagent(stats: dict, *, purpose: str, input_tokens: object,
         "input_tokens": _tokens(input_tokens, "input_tokens"),
         "output_tokens": _tokens(output_tokens, "output_tokens"),
     }
+    if estimated:
+        entry["estimated"] = True
     stats.setdefault("subagents", []).append(entry)
     recompute_totals(stats)
     return entry

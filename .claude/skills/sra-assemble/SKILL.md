@@ -53,12 +53,7 @@ This is the one decision that is yours:
 | 3 or more, or a cold build | the full five-stage chain |
 | fewer than 3 | cross-section check + conclusion/verdict only |
 
-Full chain:
-
-```bash
-uv run node workflows/polish_chain.js   # via the Workflow tool, not bash
-```
-
+The chain is a workflow script, not a shell command — there is no `node` here.
 Run it through the **Workflow tool** with `scriptPath: "workflows/polish_chain.js"`
 and args `{ticker, company, workdir, report_date, sections, char_caps}` — the
 same argument shape the write wave takes. For the reduced shape, pass
