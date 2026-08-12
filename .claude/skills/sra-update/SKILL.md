@@ -42,6 +42,7 @@ not widen the fan-out to finish the backlog in one go.
 ```bash
 uv run python sra.py status <TICKER>
 uv run python sra.py prefetch <TICKER> --stale-only
+uv run python sra.py prefetch-peers <TICKER> --stale-only
 uv run python sra.py invalidate <TICKER>            # dry run first, always
 uv run python sra.py invalidate <TICKER> --apply
 ```

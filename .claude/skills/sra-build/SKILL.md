@@ -104,6 +104,24 @@ Invoke `/sra-peers TICKER [--peers "<CSV>"]` with the answer from step 0.
 **Resume:** skip when `derived/peers/peers_selected.json` exists and postdates
 `peers_candidates.json`.
 
+## Step 6b — Peer fundamentals (Bash, deterministic)
+
+```bash
+uv run python sra.py prefetch-peers <TICKER> --stale-only
+```
+
+The peer comparison table reads each comparable's OWN bronze. Without this every
+cell renders `N/A`, which reads to a reader as a data limitation and is not one.
+
+It must run AFTER step 6: `prefetch` cannot gather the winners before they are
+chosen, and `prefetch --peers` only feeds the candidate list.
+
+**Resume:** skip when every symbol in `derived/peers/peers_selected.json` has a
+`structured/key_ratios_computed.json` under its own `data/<PEER>/` tree.
+
+Report the `warnings` list. A peer whose provider failed is not fatal — say
+which one, and note that its row will read N/A.
+
 ## Step 7 — Research
 
 Invoke `/sra-research TICKER all`. This is the largest phase — roughly 23

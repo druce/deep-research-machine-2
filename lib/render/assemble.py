@@ -325,6 +325,29 @@ def load_chartbook(ticker_dir: Path) -> tuple[list[dict], list[str], list[str]]:
     return exhibits, problems, warnings
 
 
+_PEER_METRIC_KEYS = ("forward_pe", "revenue_ttm", "operating_margin",
+                     "revenue_growth")
+
+
+def peer_table_warnings(peers: list[dict]) -> list[str]:
+    """Warn when the comparables carry no fetched fundamentals (§13.6).
+
+    An all-N/A peer table is not a data limitation, it is an unrun command —
+    and it is invisible in the build log, which is why a report shipped with
+    five empty comparable rows and a caption explaining them away.
+    """
+    comparables = [p for p in peers if not p.get("is_subject")]
+    if not comparables:
+        return []
+    cells = [p.get(key) for p in comparables for key in _PEER_METRIC_KEYS]
+    empty = sum(1 for value in cells if str(value).strip().upper() == "N/A")
+    if empty * 2 <= len(cells):
+        return []
+    subject = next((p.get("symbol", "") for p in peers if p.get("is_subject")), "")
+    return [f"peer table: {empty} of {len(cells)} comparable metric cells read "
+            f"N/A — run `sra.py prefetch-peers {subject}` before assembling"]
+
+
 def _figure(path: str, caption: str) -> str:
     """One pandoc fenced-div figure. Empty alt on purpose (§15.3)."""
     return f"::: {{.figure}}\n![]({path})\n\n<span class=\"caption\">{caption}</span>\n:::\n"
@@ -625,7 +648,8 @@ def assemble(ticker_dir: Path, run_dir: Path) -> tuple[bool, dict, str | None]:
         "citation_map": run_dir / "citation_map.json",
         "citations": len(ids),
         "exhibits": len(exhibits),
-        "warnings": chart_warnings + body_warnings,
+        "warnings": (chart_warnings + body_warnings
+                     + peer_table_warnings(variables["peers"])),
         "render_errors": render_errors,
     }
     _update_run_stats(run_dir, {

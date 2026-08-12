@@ -44,6 +44,16 @@ is nothing here to assemble.
 Read `report.sections_dirty` from `data/<TICKER>/.state.json`: that list is what
 decides the next step.
 
+Then check the peer table has data, before spending a polish chain on the run:
+
+```bash
+uv run python sra.py prefetch-peers <TICKER> --stale-only
+```
+
+Assembly emits a `peer table:` warning when most comparable cells read `N/A`. If
+that warning survives this command, say so when you report — the table will ship
+empty, and the caption will make it look intentional.
+
 ## Step 1 — Polish, at the shape the run earns (§23.2)
 
 This is the one decision that is yours:

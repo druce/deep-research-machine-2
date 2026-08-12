@@ -32,6 +32,7 @@ status (what actually exists today) lives in `docs/superpowers/plans/`, not here
 | `init T` / `status T` | initialize ticker / report stale bronze |
 | `prefetch T [--kinds] [--stale-only] [--peers]` | ticker gather |
 | `prefetch-macro [--series] [--stale-only]` | shared macro gather |
+| `prefetch-peers T [--stale-only]` | metric bronze for the SELECTED comparables |
 | `peers-candidates T [--peers] [--top-funds N]` / `peers-select T [--ranked-file P]` | peer selection |
 | `fetch-urls T [--from ANSWER_ID] [--max N]` | harvest researcher URLs |
 | `manifest T` / `show T ID` / `grep T PATTERN [...]` / `eval-retrieval T [...]` | retrieval |

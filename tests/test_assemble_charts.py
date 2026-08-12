@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lib.render.assemble import DASHBOARD_CHARTS, _body, load_chartbook
+from lib.render.assemble import (
+    DASHBOARD_CHARTS, _body, load_chartbook, peer_table_warnings,
+)
 from lib.validate import validate
 
 
@@ -113,3 +115,29 @@ def test_linked_citations_produce_no_finding(tmp_path: Path) -> None:
         '<span class="ref-n" id="ref-1">[1]</span> Only source\n'))
 
     assert [f for f in validate(d, data_root) if f.code == "citation-unlinked"] == []
+
+
+def test_mostly_empty_peer_table_warns() -> None:
+    peers = [{"symbol": "SUBJ", "is_subject": True, "forward_pe": "18.0",
+              "revenue_ttm": "$9.0B", "operating_margin": "12.0%",
+              "revenue_growth": "8.0%"}]
+    peers += [{"symbol": s, "is_subject": False, "forward_pe": "N/A",
+               "revenue_ttm": "N/A", "operating_margin": "N/A",
+               "revenue_growth": "N/A"} for s in ("BA", "LMT", "RTX")]
+
+    warnings = peer_table_warnings(peers)
+
+    assert len(warnings) == 1
+    assert "prefetch-peers" in warnings[0]
+
+
+def test_populated_peer_table_does_not_warn() -> None:
+    peers = [{"symbol": s, "is_subject": s == "SUBJ", "forward_pe": "18.0",
+              "revenue_ttm": "$9.0B", "operating_margin": "12.0%",
+              "revenue_growth": "8.0%"} for s in ("SUBJ", "BA", "LMT")]
+
+    assert peer_table_warnings(peers) == []
+
+
+def test_a_table_with_no_comparables_does_not_warn() -> None:
+    assert peer_table_warnings([{"symbol": "SUBJ", "is_subject": True}]) == []
