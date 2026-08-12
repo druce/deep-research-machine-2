@@ -47,6 +47,10 @@ VERDICT_NAME = "verdict.json"
 SECTIONS_SUBDIR = "sections"
 CONCLUSION_NAME = "conclusion.md"
 CHARTBOOK_NAME = "chartbook.json"
+
+# §16.2: the dashboard template places these two itself, before Section 1. A
+# chartbook that also selects one produces the same image twice in one report.
+DASHBOARD_CHARTS: frozenset[str] = frozenset({"price_weekly", "income_sankey"})
 REFERENCES_NAME = "references.md"
 RUN_STATS_NAME = "run_stats.json"
 REPORT_STEM = "report"
@@ -255,8 +259,8 @@ def to_pdf(html_path: Path, pdf_path: Path) -> str | None:
 
 # --- chartbook (§16.2) ----------------------------------------------------
 
-def load_chartbook(ticker_dir: Path) -> tuple[list[dict], list[str]]:
-    """`(exhibits, problems)` from `charts/chartbook.json`.
+def load_chartbook(ticker_dir: Path) -> tuple[list[dict], list[str], list[str]]:
+    """`(exhibits, problems, warnings)` from `charts/chartbook.json`.
 
     An absent chartbook is not a problem: it means the selection skill has not
     run, and a report with no exhibits is worse but still a report. A chartbook
@@ -264,22 +268,27 @@ def load_chartbook(ticker_dir: Path) -> tuple[list[dict], list[str]]:
     references to nonexistent chart candidates, because the alternative is a
     hole in the assembled PDF that nobody sees until a reader does.
 
+    `problems` is fatal at the gate; `warnings` is not. A selection the
+    dashboard already placed is a warning, because the chart does reach the
+    reader — just not from here.
+
     Exhibits come back sorted by `order` and numbered 1..n, so the number a
     caption shows is the number the reader counts.
     """
     path = ticker_dir / "charts" / CHARTBOOK_NAME
     if not path.exists():
-        return [], []
+        return [], [], []
     try:
         book = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        return [], [f"cannot read {CHARTBOOK_NAME}: {exc}"]
+        return [], [f"cannot read {CHARTBOOK_NAME}: {exc}"], []
     selected = book.get("selected") if isinstance(book, dict) else None
     if not isinstance(selected, list):
-        return [], [f"{CHARTBOOK_NAME}: 'selected' must be a list"]
+        return [], [f"{CHARTBOOK_NAME}: 'selected' must be a list"], []
 
     exhibits: list[dict] = []
     problems: list[str] = []
+    warnings: list[str] = []
     for entry in selected:
         if not isinstance(entry, dict):
             problems.append(f"{CHARTBOOK_NAME}: every selection must be an object")
@@ -297,6 +306,11 @@ def load_chartbook(ticker_dir: Path) -> tuple[list[dict], list[str]]:
                 f"{CHARTBOOK_NAME}: selection {name!r} names section {section!r}, "
                 f"which is not one of {', '.join(SECTION_IDS)}")
             continue
+        if name in DASHBOARD_CHARTS:
+            warnings.append(
+                f"{CHARTBOOK_NAME}: selection {name!r} is already placed by the "
+                f"dashboard; dropping it from the inline exhibits")
+            continue
         exhibits.append({
             "name": name,
             "section": section,
@@ -308,7 +322,7 @@ def load_chartbook(ticker_dir: Path) -> tuple[list[dict], list[str]]:
     exhibits.sort(key=lambda e: e["order"])
     for n, exhibit in enumerate(exhibits, start=1):
         exhibit["number"] = n
-    return exhibits, problems
+    return exhibits, problems, warnings
 
 
 def _figure(path: str, caption: str) -> str:
@@ -343,17 +357,32 @@ def _read_sections(run_dir: Path) -> tuple[dict[str, str], list[str]]:
     return drafts, missing
 
 
-def _body(drafts: dict[str, str], exhibits: list[dict], run_dir: Path) -> str:
-    """Sections in `SECTION_IDS` order, each followed by its exhibits (§16.2)."""
+def _body(drafts: dict[str, str], exhibits: list[dict],
+          run_dir: Path) -> tuple[str, list[str]]:
+    """Sections in `SECTION_IDS` order, each followed by its exhibits (§16.2).
+
+    An image already embedded is skipped rather than repeated. The selector is
+    a model and the template places two charts of its own, so this is the last
+    place that can guarantee one placement per chart.
+    """
     parts: list[str] = []
+    warnings: list[str] = []
+    seen: set[str] = set()
     for section_id in SECTION_IDS:
         parts.append(drafts[section_id].rstrip() + "\n")
         for exhibit in exhibits:
-            if exhibit["section"] == section_id:
-                parts.append("\n" + _figure(
-                    _relative(exhibit["png"], run_dir),
-                    f"Exhibit {exhibit['number']} — {exhibit['caption']}"))
-    return "\n".join(parts)
+            if exhibit["section"] != section_id:
+                continue
+            path = _relative(exhibit["png"], run_dir)
+            if path in seen:
+                warnings.append(
+                    f"exhibit {exhibit['name']!r} is already embedded earlier "
+                    f"in the report; skipping the repeat")
+                continue
+            seen.add(path)
+            parts.append("\n" + _figure(
+                path, f"Exhibit {exhibit['number']} — {exhibit['caption']}"))
+    return "\n".join(parts), warnings
 
 
 # --- template variables ---------------------------------------------------
@@ -532,7 +561,7 @@ def assemble(ticker_dir: Path, run_dir: Path) -> tuple[bool, dict, str | None]:
     if not ok:
         return False, {}, f"verdict: {err}"
 
-    exhibits, problems = load_chartbook(ticker_dir)
+    exhibits, problems, chart_warnings = load_chartbook(ticker_dir)
     if problems:
         return False, {}, "; ".join(problems)
 
@@ -557,7 +586,7 @@ def assemble(ticker_dir: Path, run_dir: Path) -> tuple[bool, dict, str | None]:
     if failures:
         return False, {}, "; ".join(failures)
 
-    body = _body(drafts, exhibits, run_dir)
+    body, body_warnings = _body(drafts, exhibits, run_dir)
 
     ids = collect_citations(body + "\n" + conclusion)
     mapping = {artifact_id: n for n, artifact_id in enumerate(ids, start=1)}
@@ -596,6 +625,7 @@ def assemble(ticker_dir: Path, run_dir: Path) -> tuple[bool, dict, str | None]:
         "citation_map": run_dir / "citation_map.json",
         "citations": len(ids),
         "exhibits": len(exhibits),
+        "warnings": chart_warnings + body_warnings,
         "render_errors": render_errors,
     }
     _update_run_stats(run_dir, {
