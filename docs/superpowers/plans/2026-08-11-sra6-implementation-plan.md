@@ -1044,6 +1044,45 @@ This is the spec's acceptance gate, run once, interactively, with real keys in `
 
 **Known judgment calls made here (flag to reviewer):** (a) the `record_attempt` CLI exposure via `mark-answered --no-evidence` (Task 9.2) — spec defines the function but no command; alternative is a dedicated `record-attempt` subcommand, equally acceptable; (b) `subscribes_to` starting values in Task 0.3 are proposals — tune freely; (c) macro tree is structured-only until a macro source document need appears.
 
+## Implementation status (updated 2026-08-11)
+
+**Phases 0–13.3 are implemented and committed; the suite is green
+(`uv run pytest -q -m "not integration"`).** Every §19 command exists except
+`migrate` (approved deviation above).
+
+Phase 12–13 additions worth knowing about, since they are decisions the plan
+left open:
+
+- **Run directories are immutable once snapshotted.** `lib/render/runs.py` owns
+  the naming (`<date>`, `<date>_2`, …) and `current_run`, which refuses to hand
+  back a run carrying `snapshot.json`. `snapshot` stamps the run rather than
+  moving it, so a second same-day build writes `_2` and §24's "diff against the
+  first snapshot must remain possible" holds. `/sra-write` and `/sra-assemble`
+  both resolve the run through that rule.
+- **`assemble` returns `(ok, data, error)`**, not the plan's bare `Path` — the
+  project's data-function convention, and the driver turns `ok=False` into
+  exit 1. Render failures (no pandoc, no Pango) do NOT fail the command: §22.3
+  degrades them into `render_errors`, since the markdown and references are
+  already on disk.
+- **A reference entry always describes the artifact that was cited.** An
+  aggregator's harvested origin and a computed artifact's upstream evidence are
+  listed UNDER their entry, never in place of it, so `references.md` and
+  `citation_map.json` cannot disagree about what supported a claim.
+- **`polish_chain.js` takes an optional `stages` subset**, which is how §23.2's
+  "fewer than three dirty sections" shape is expressed. `/sra-assemble` makes
+  that call; the script only honors it.
+- **`run_stats.record_subagent` rejects an unknown `purpose`** and accepts an
+  `estimated=True` flag for counts an orchestrator apportioned rather than read.
+- **`tests/fixtures/retrieval_baseline.json` is an unrecorded placeholder**
+  (`mean_recall: null`) and `compare_to_baseline` refuses to pass against it.
+  Task 13.4 records the real value.
+
+**Remaining: Task 13.4 only** — the live PANW acceptance build. It needs real
+provider keys, runs interactively (the peer question at step 0), costs an hour
+of wall clock and real API spend, and is the user's call to start. Nothing in
+the code is blocked on it; what it produces is the recorded retrieval baseline
+and the §23.3 gate measurements.
+
 ## Execution Handoff
 
 Execute with superpowers:subagent-driven-development (fresh subagent per task, review between tasks) or superpowers:executing-plans (inline with checkpoints). Phases 0–4 are strictly sequential; Phases 5–7 can interleave after 4; Phases 8–9 need 5–6; Phases 10–12 need 5 (charts) and 8–9 (assembly inputs); Phase 13 needs everything.

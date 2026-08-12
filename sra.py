@@ -5,8 +5,9 @@ Nothing deterministic belongs in a skill (§3): if it can be a function, it is a
 subcommand here. Skills orchestrate model work and call this CLI for everything
 mechanical.
 
-See sra6-spec.md §19 for the target command surface and §20 for module
-contracts. This module currently implements the skeleton: `init` and `status`.
+See sra6-spec.md §19 for the command surface and §20 for module contracts.
+Every §19 command is implemented except `migrate` (§26), an approved deviation:
+no legacy corpora are being imported.
 """
 
 from __future__ import annotations
