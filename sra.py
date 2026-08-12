@@ -284,6 +284,116 @@ def cmd_prefetch(args: argparse.Namespace) -> int:
     return 0 if not result["errors"] else 2
 
 
+# The four registry kinds `assemble._peer_row` reads. `technical` DEPENDS_ON
+# `prices`, so prices is here to satisfy it rather than for its own artifact.
+# Everything else — filings, transcripts, news, estimates — is subject-only
+# work: the peer table compares four reported numbers, not a thesis.
+PEER_METRIC_KINDS: list[str] = ["profile", "prices", "financials", "technical"]
+
+
+def selected_peer_symbols(ticker_dir: Path) -> tuple[list[str], str | None]:
+    """`(symbols, error)` for the selected comparables (§13.6).
+
+    The subject itself appears in `peers_selected.json` flagged `is_subject`;
+    it is dropped here because its own bronze is what `prefetch` gathered.
+    """
+    path = ticker_dir / "derived" / "peers" / "peers_selected.json"
+    if not path.exists():
+        return [], (f"no peers_selected.json at {path} "
+                    f"(run: sra.py peers-select {ticker_dir.name})")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return [], f"cannot read peers_selected.json: {exc}"
+    if not isinstance(payload, dict):
+        return [], "peers_selected.json: top level must be an object"
+    entries = (payload.get("data") or {}).get("peers")
+    if not isinstance(entries, list):
+        return [], "peers_selected.json: data.peers must be a list"
+    symbols = [str(e.get("symbol") or "").strip().upper()
+               for e in entries
+               if isinstance(e, dict) and not e.get("is_subject")]
+    return [s for s in symbols if s], None
+
+
+def _ensure_peer_tree(data_root: Path, symbol: str) -> tuple[Path, dict] | None:
+    """Create a peer's §4 tree if absent and return `(dir, state)`.
+
+    None when the symbol is not a legal ticker — `valid_ticker` runs BEFORE the
+    filesystem is touched, so a `../evil` entry in a model-written selection
+    file is never interpolated into a path (§8.4 check 7).
+    """
+    if not valid_ticker(symbol):
+        return None
+    d = ticker_dir(data_root, symbol)
+    for sub in TICKER_SUBDIRS:
+        (d / sub).mkdir(parents=True, exist_ok=True)
+    try:
+        state = load_state(d)
+    except FileNotFoundError:
+        init_state(d, symbol.upper())
+        state = load_state(d)
+    return d, state
+
+
+def cmd_prefetch_peers(args: argparse.Namespace) -> int:
+    """Fetch the peer-table metrics for each selected comparable (§13.6).
+
+    Exit 1 when the subject is not initialized or has no selection, else 0. A
+    peer that fails is a WARNING: four good comparables beat a build that
+    refuses to finish because one provider was down.
+
+    This must run AFTER peer selection. `prefetch --peers` feeds the candidate
+    gather and cannot know the winners, which is why the peer table used to
+    render every cell N/A.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+    if not _require_initialized(ticker, d):
+        return 1
+
+    symbols, error = selected_peer_symbols(d)
+    if error is not None:
+        print(f"prefetch-peers: {error}", file=sys.stderr)
+        return 1
+
+    now = datetime.now(timezone.utc)
+    out: dict = {"ticker": ticker, "peers": [], "skipped": [], "warnings": []}
+
+    for symbol in symbols:
+        prepared = _ensure_peer_tree(args.data_root, symbol)
+        if prepared is None:
+            out["warnings"].append(f"{symbol!r}: not a valid ticker; skipped")
+            continue
+        peer_dir, state = prepared
+
+        if args.stale_only:
+            due = _due_kinds(state, PEER_METRIC_KINDS, now, peer_dir)
+            kinds = [k for k in PEER_METRIC_KINDS if k in due]
+        else:
+            kinds = list(PEER_METRIC_KINDS)
+        if not kinds:
+            out["skipped"].append(symbol)
+            continue
+
+        try:
+            with TickerLock(peer_dir, "prefetch-peers", force=args.force_lock):
+                result = run_prefetch(symbol, peer_dir, state, kinds, FETCHERS,
+                                      dependency_map(kinds))
+        except LockHeldError as exc:
+            out["warnings"].append(f"{symbol}: {exc}")
+            continue
+
+        out["peers"].append(symbol)
+        for kind, message in (result.get("errors") or {}).items():
+            out["warnings"].append(f"{symbol}/{kind}: {message}")
+
+    print(json.dumps(out, indent=2))
+    return 0
+
+
 def cmd_prefetch_macro(args: argparse.Namespace) -> int:
     """Gather shared macro evidence into `data/_MACRO/` (§12).
 
@@ -1352,6 +1462,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="only fetch kinds that are stale or never fetched")
     sp.add_argument("--peers", default=None,
                     help="comma-separated user-provided peer list (peers fetcher only)")
+
+    sp = add("prefetch-peers", cmd_prefetch_peers, mutating=True)
+    sp.add_argument("--stale-only", action="store_true",
+                    help="only fetch peers whose metric artifacts are stale "
+                         "or were never fetched")
 
     sp = add("invalidate", cmd_invalidate, mutating=True)
     sp.add_argument("--apply", action="store_true",
