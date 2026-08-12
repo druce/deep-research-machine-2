@@ -40,6 +40,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import re
 import socket
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -54,6 +55,32 @@ from lib.provenance import (
 MAX_REDIRECTS = 3
 MAX_BYTES = 5 * 1024 * 1024
 TIMEOUT_SECONDS = 20
+
+
+def request_headers() -> dict[str, str]:
+    """Headers for every harvest fetch, led by a declared identity.
+
+    httpx defaults to `python-httpx/<version>`. sec.gov refuses that outright —
+    its fair-access policy requires a declared identity — so EVERY sec.gov URL a
+    researcher cited came back 403 and mapped to `null`, which makes the claim
+    resting on it uncitable. The SPCX build lost its entire S-1 that way: the
+    prospectus was the only source for revenue by geography, customer
+    concentration and the executive table, and three separate agents reported it
+    as an unfillable gap.
+
+    The identity is the same `SEC_FIRM SEC_USER` pair `edgar.set_identity` uses,
+    so one `.env` configures both paths. It is sent to every host, not just SEC:
+    declaring who is asking is good manners everywhere, and a bare library UA is
+    what most publishers' bot rules key on.
+    """
+    firm = os.environ.get("SEC_FIRM", "").strip()
+    user = os.environ.get("SEC_USER", "").strip()
+    identity = f"{firm} {user}".strip() or "sra6 (SEC_FIRM/SEC_USER unset)"
+    return {
+        "User-Agent": identity,
+        "Accept": "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
 MAX_MARKDOWN_CHARS = 200_000
 WEB_PAGE_POLICY_DAYS = 30
 
@@ -191,6 +218,9 @@ def _extract_title(root) -> str | None:
     return None
 
 
+_XML_DECLARATION_RE = re.compile(r"^\s*<\?xml[^>]*\?>", re.IGNORECASE)
+
+
 def html_to_markdown(html: str) -> tuple[str, str | None]:
     """Extract readable text from `html` as `(markdown, title)`.
 
@@ -208,7 +238,13 @@ def html_to_markdown(html: str) -> tuple[str, str | None]:
     from lxml import etree, html as lxml_html  # local import: keep module importable
 
     try:
-        root = lxml_html.fromstring(html)
+        # lxml refuses a str carrying an XML encoding declaration
+        # ("Unicode strings with encoding declaration are not supported"), and
+        # every modern SEC inline-XBRL filing is XHTML that opens with one. The
+        # ValueError landed in the fallback below, so LMT's and NOC's 10-Qs were
+        # stored as 200KB of raw Workiva markup — unreadable as evidence, and
+        # tripping the secret scanner on the document GUIDs in their comments.
+        root = lxml_html.fromstring(_XML_DECLARATION_RE.sub("", html, count=1))
     except (etree.ParserError, etree.XMLSyntaxError, ValueError):
         # Not parseable as HTML (empty or malformed beyond recovery) — the raw
         # text is still better evidence than nothing.
@@ -385,6 +421,7 @@ def fetch_url_to_markdown(
 
             try:
                 with client.stream("GET", current, follow_redirects=False,
+                                   headers=request_headers(),
                                    timeout=TIMEOUT_SECONDS) as response:
                     if response.is_redirect:
                         location = response.headers.get("location")

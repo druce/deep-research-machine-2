@@ -210,17 +210,16 @@ def test_the_verdict_arithmetic_is_the_drivers_not_the_models(tree: Path, capsys
 def test_no_internal_filename_reaches_the_report(tree: Path, capsys):
     run_dir = _build(tree, capsys)
     report = (run_dir / "report.md").read_text(encoding="utf-8")
-    body = report[:report.index("## Chartbook")]
+    body = report[:report.index("## References")]
     for internal in ("structured/", "derived/", ".state.json", "00_manifest"):
         assert internal not in body, internal
 
 
-def test_every_selected_exhibit_appears_at_its_section_and_in_the_appendix(
-        tree: Path, capsys):
+def test_every_selected_exhibit_appears_exactly_once(tree: Path, capsys):
     run_dir = _build(tree, capsys)
     report = (run_dir / "report.md").read_text(encoding="utf-8")
     for name in ("revenue_growth", "margin_trends"):
-        assert report.count(f"charts/candidates/{name}.png") == 2, name
+        assert report.count(f"charts/candidates/{name}.png") == 1, name
 
 
 def test_state_records_the_generation(tree: Path, capsys):

@@ -229,3 +229,39 @@ def test_transcript_as_of_is_the_call_date(tmp_ticker_dir: Path):
                      now=datetime(2026, 5, 22, tzinfo=timezone.utc))
     meta, _ = read_source(tmp_ticker_dir / "sources" / "2026-05-22_transcript.md")
     assert meta.as_of == "2026-05-21"
+
+
+# --- what a 10-Q actually has to carry -------------------------------------
+
+def test_the_10q_fetches_the_notes_and_the_risk_factors():
+    """This was `["Item 2"]` — MD&A alone.
+
+    Everything an analyst cites lives elsewhere: the statements and their notes
+    in Part I Item 1, the risk factors in Part II Item 1A. The MD&A text itself
+    keeps deferring to "Note 9" and "Note 16 ... included elsewhere in this
+    Quarterly Report", and those notes were never fetched. On a company whose
+    only periodic filing is a 10-Q, that is most of the evidence.
+    """
+    from lib.fetchers.edgar import ITEM_10Q_LABELS, SEC_10Q_ITEMS
+
+    assert "Part I Item 1" in SEC_10Q_ITEMS        # statements AND notes
+    assert "Part II Item 1A" in SEC_10Q_ITEMS      # risk factors
+    assert "Part II Item 1" in SEC_10Q_ITEMS       # legal proceedings
+    assert "Part I Item 2" in SEC_10Q_ITEMS        # MD&A, as before
+
+
+def test_10q_item_keys_are_part_qualified():
+    """A 10-Q reuses item numbers across its parts — Item 1 is Financial
+    Statements in Part I and Legal Proceedings in Part II — so a bare key
+    resolves to whichever edgartools happens to find first."""
+    from lib.fetchers.edgar import SEC_10Q_ITEMS
+
+    assert all(k.startswith(("Part I ", "Part II ")) for k in SEC_10Q_ITEMS)
+
+
+def test_every_10q_item_has_a_heading():
+    """The writer emits `## <label>` per item; a key with no label is fetched
+    and then silently dropped from the source file."""
+    from lib.fetchers.edgar import ITEM_10Q_LABELS, SEC_10Q_ITEMS
+
+    assert set(SEC_10Q_ITEMS) == set(ITEM_10Q_LABELS)

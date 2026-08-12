@@ -31,10 +31,11 @@ bare refresh or directed research   ≤30 minutes
 directed research                   ≤8 model subagents
 ```
 
-The 8 is `MAX_PARALLEL_AGENTS` — a concurrency width, not a question cap. A
-larger open set runs as successive waves until the clock or the token budget is
-reached; whatever is not reached stays `open` for the next run. Do not widen the
-fan-out to finish the backlog in one go.
+The 8 is `MAX_INCREMENTAL_SUBAGENTS` — a SPEND limit for this flow, and a
+different thing from `MAX_PARALLEL_AGENTS` (16), which is how wide one wave
+runs. A larger open set runs as successive waves until the clock or the token
+budget is reached; whatever is not reached stays `open` for the next run. Do
+not widen the fan-out to finish the backlog in one go.
 
 ## Flow A — Bare refresh
 
@@ -127,6 +128,20 @@ stats = load_run_stats(Path("data/<TICKER>/reports/<RUN>"))
 print(json.dumps(check_budgets(stats, max_subagents=8, max_minutes=30), indent=2))
 PY
 ```
+
+Every agent this flow dispatches writes its own task log into
+`reports/<RUN>/log/` (§23.4) — same contract as the cold build. Create that
+directory before the first dispatch, and close out with:
+
+```bash
+uv run python sra.py wiki-index <TICKER>
+uv run python sra.py run-log <TICKER> --run <RUN>
+uv run python sra.py wiki-log <TICKER> --entry "update: <what changed>" \
+    --agents <N> --tokens <T> --minutes <M> --run <RUN>
+```
+
+An incremental run's log is the cheapest way to answer "what did this actually
+touch?" — which is exactly the question §23.3's incremental gate asks.
 
 ## Report
 

@@ -167,16 +167,19 @@ def test_sections_appear_in_report_order(corpus):
     assert report.index("## Conclusion: Investment Thesis") > positions[-1]
 
 
-def test_selected_chart_is_embedded_at_its_section_and_in_the_appendix(corpus):
-    """§16.2: selected charts are embedded at their sections and again in a
-    Chartbook appendix."""
+def test_selected_chart_is_embedded_once_at_its_section(corpus):
+    """§16.2: a selected chart is embedded at its section and nowhere else.
+
+    It used to appear a second time in a Chartbook appendix, which made every
+    exhibit a duplicate and buried the two dashboard charts under a third copy.
+    """
     ticker_dir, run_dir = corpus
     assemble(ticker_dir, run_dir)
     report = (run_dir / "report.md").read_text(encoding="utf-8")
-    assert report.count("charts/candidates/revenue_growth.png") == 2
-    at_section = report.index("charts/candidates/revenue_growth.png")
-    assert at_section < report.index("## Chartbook")
-    assert at_section > report.index("## 1. Company Profile")
+    assert report.count("charts/candidates/revenue_growth.png") == 1
+    assert "## Chartbook" not in report
+    assert report.index("charts/candidates/revenue_growth.png") > \
+        report.index("## 1. Company Profile")
 
 
 def test_chart_paths_are_relative_to_the_run_directory(corpus):

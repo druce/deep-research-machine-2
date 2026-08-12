@@ -91,3 +91,10 @@ resolves to no PNG is a hole in the assembled report.
 Return, as your final message: how many candidates you saw, how many you
 selected, which sections got none and why, and any candidate you rejected for a
 reason worth knowing (stale, duplicative, uncovered).
+
+## Two slots are already filled
+
+The report's dashboard places the weekly price chart (`price_weekly`) and the
+income-statement Sankey (`income_sankey`) itself, before Section 1. Selecting
+either wastes an exhibit slot: the assembler drops it, and the report shows the
+chart once, where the dashboard put it. Pick from the remaining candidates.

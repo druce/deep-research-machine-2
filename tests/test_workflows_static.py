@@ -98,17 +98,29 @@ def test_meta_has_the_required_fields(name):
     assert re.search(r"\bdescription:\s*'", literal)
 
 
-@pytest.mark.parametrize("name", EXPECTED)
-def test_meta_phases_match_the_phase_calls(name):
+def test_polish_chain_meta_phases_match_its_phase_calls():
     """Progress groups are matched by exact title; a phase() with no meta entry
     gets its own ungrouped box, and a meta entry with no phase() is a group that
     never appears."""
-    text = source(name)
+    text = source("polish_chain.js")
     declared = set(re.findall(r"title:\s*'([^']+)'", meta_block(text)))
     used = set(re.findall(r"phase:\s*'([^']+)'", text))
     used |= set(re.findall(r"^\s*phase\('([^']+)'\)", text, re.M))
-    assert used <= declared, f"{name}: undeclared phases {sorted(used - declared)}"
-    assert declared <= used, f"{name}: unused phases {sorted(declared - used)}"
+    assert used <= declared, f"undeclared phases {sorted(used - declared)}"
+    assert declared <= used, f"unused phases {sorted(declared - used)}"
+
+
+def test_write_wave_meta_phases_are_the_seven_section_titles():
+    """The write wave groups progress by SECTION, not by stage, so its phase
+    titles come from `section.title` at runtime and cannot be read out of the
+    source. What is checkable — and what actually breaks the display — is that
+    `meta.phases` names exactly the seven titles sections.yaml defines."""
+    from lib.sections import load_sections
+
+    declared = set(re.findall(r"title:\s*'([^']+)'",
+                              meta_block(source("write_wave.js"))))
+    titles = {cfg["title"] for cfg in load_sections()["sections"].values()}
+    assert declared == titles
 
 
 # --- runtime constraints ----------------------------------------------------
@@ -175,14 +187,34 @@ def test_the_script_actually_parses_as_javascript(name):
 
 # --- the write wave's own contract ------------------------------------------
 
-def test_write_wave_runs_all_three_stages_as_a_pipeline():
-    """§15.1's chain, and a pipeline rather than three barriers: sections are
-    independent, so valuation can be rewriting while risk_news still drafts."""
+def test_write_wave_runs_each_section_as_its_own_chain():
+    """§15.1's chain, expressed as seven independent chains launched together
+    rather than three stages over seven sections. Sections share no state, so
+    nothing one does can hold up another, and valuation can be rewriting while
+    risk_news still drafts."""
     text = source("write_wave.js")
-    assert "pipeline(" in text
+    assert "parallel(" in text
+    assert re.search(r"async function runSection\(section\)", text)
     for label in ("write:", "critic:", "rewrite:"):
         assert f"`{label}" in text, label
-    assert "parallel(" not in text, "a barrier would idle every fast section"
+    assert "pipeline(" not in text, "stages are per-section, not global"
+
+
+def test_write_wave_orders_sections_longest_first():
+    """The harness caps concurrency below the section count, so one section
+    always queues. It should be the cheapest one, not the 2700-word one."""
+    text = source("write_wave.js")
+    assert re.search(r"sort\(\s*\n?\s*\(a, b\) => \(b\.word_target \|\| 0\) - "
+                     r"\(a\.word_target \|\| 0\)\)", text)
+    assert "ordered.map((section) => () => runSection(section))" in text
+
+
+def test_write_wave_groups_progress_by_section():
+    """One phase per section, so the display shows what is actually true: seven
+    chains at different stages, not three stages waiting on each other."""
+    text = source("write_wave.js")
+    assert "const phase = section.title" in text
+    assert text.count("phase,") >= 3          # passed to all three agents
 
 
 def test_write_wave_writes_where_the_spec_says():
@@ -198,12 +230,37 @@ def test_write_wave_uses_absolute_paths_in_every_prompt():
     assert "workdir" in text
 
 
-def test_write_wave_takes_its_stage_input_from_the_original_section():
-    """A stage whose predecessor died gets `null`; rebuilding the prompt from it
-    would drop the whole section instead of just that stage."""
+def test_write_wave_builds_every_prompt_from_the_original_section():
+    """A stage whose predecessor died returns `null`; building the next prompt
+    out of that result would drop the whole section instead of just that
+    stage."""
     text = source("write_wave.js")
-    assert "(_draft, section) =>" in text
-    assert "(_critique, section) =>" in text
+    for builder in ("writePrompt(section)", "criticPrompt(section)",
+                    "rewritePrompt(section)"):
+        assert builder in text, builder
+    # And a dead rewrite still leaves the draft to account for.
+    assert "const final = rewrite || draft" in text
+
+
+def test_write_wave_gives_the_critic_a_schema():
+    """Without one the critique came back as an unparsed string and nothing
+    downstream could count what it found."""
+    text = source("write_wave.js")
+    assert "CRITIQUE_SCHEMA" in text
+    assert "schema: CRITIQUE_SCHEMA" in text
+    assert "blocking" in text
+
+
+def test_write_wave_makes_every_agent_write_a_task_log():
+    """A workflow script has no filesystem and §15.2 bans Date.now(), so the
+    only account of what an agent did is the one the agent writes (§23.4)."""
+    text = source("write_wave.js")
+    assert "taskLogContract" in text
+    assert "date -u +%Y-%m-%dT%H:%M:%SZ" in text
+    assert "/log/" in text
+    for stage in ("section-write", "section-critic", "section-rewrite"):
+        assert stage in text, stage
+    assert "Write the log even when the work failed" in text
 
 
 def test_write_wave_surfaces_failed_hard_checks():
@@ -305,13 +362,45 @@ def test_polish_chain_does_not_compute_the_implied_return():
 
 def test_polish_chain_takes_the_same_args_as_the_write_wave():
     """§15.2 lists one arg set for both scripts, so an orchestrator can build
-    it once."""
+    it once.
+
+    The destructured expression is `input`, not `args`, because both scripts
+    normalize a JSON-string `args` first — see the test below. What §15.2
+    constrains is the set of names, not the identifier they are read from.
+    """
     for name in EXPECTED:
-        destructure = re.search(r"const \{([^}]+)\} = args", source(name))
+        destructure = re.search(r"const \{([^}]+)\} = input", source(name))
         assert destructure, name
         names = {n.strip() for n in destructure.group(1).split(",")}
         assert {"ticker", "workdir", "report_date", "sections",
                 "char_caps"} <= names, name
+
+
+def test_both_scripts_tolerate_args_arriving_as_a_json_string():
+    """Some harness builds deliver `args` as a JSON string. Destructuring that
+    directly yields undefined for every field and fails opaquely at the first
+    use — which is exactly how it failed during the live PANW build. Both
+    scripts normalize before destructuring."""
+    for name in EXPECTED:
+        text = source(name)
+        assert re.search(r"typeof args === 'string'\s*\?\s*JSON\.parse\(args\)"
+                         r"\s*:\s*args", text), name
+
+
+def test_polish_chain_task_logs_use_the_spec_purpose_vocabulary():
+    """The progress label is `cross-check`; §23.4's purpose is `cross-section`.
+    A log written under the label would be rejected by `record_subagent` and
+    would join to nothing in the run log."""
+    from lib.run_stats import PURPOSES
+
+    text = source("polish_chain.js")
+    assert "taskLogContract" in text
+    block = text[text.index("const LOG_PURPOSE = {"):]
+    block = block[:block.index("}")]
+    declared = set(re.findall(r"'([a-z-]+)'", block))
+    assert declared == {"cross-section", "conclusion", "critique", "polish",
+                        "evaluate"}
+    assert declared <= set(PURPOSES)
 
 
 def test_polish_prompts_forbid_smoothing_a_genuine_tension():

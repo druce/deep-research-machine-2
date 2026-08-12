@@ -46,9 +46,11 @@ Three emitters place charts. `price_weekly` and `income_sankey` hit all three.
 
 **`lib/render/assemble.py`**
 - Add module constant `DASHBOARD_CHARTS = frozenset({"price_weekly", "income_sankey"})`.
-- `load_chartbook()` drops any selection whose `name` is in `DASHBOARD_CHARTS`,
-  appending an advisory string to `problems` (not fatal — the chart *is* in the
-  report, just placed by the template).
+- `load_chartbook()` drops any selection whose `name` is in `DASHBOARD_CHARTS`.
+  Its existing `problems` list is **fatal** (`assemble.py:536` refuses assembly
+  on any entry), so it grows a third return value: `(exhibits, problems,
+  warnings)`. A dashboard-placed selection is a warning — the chart *is* in the
+  report, just placed by the template.
 - `_body()` tracks emitted image paths in a `set`; a repeat is skipped and
   appended to the returned problem list. `_body()`'s signature changes from
   `-> str` to `-> tuple[str, list[str]]`; the caller merges the problems.
@@ -98,12 +100,15 @@ added to the `postprocess()` chain after `colour_signed_cells` and before
   `<span class="ref-n" id="ref-N">[N]</span>`, followed by the entry text and
   one back-link per call site: a bare `↩` when a source is cited once,
   `↩¹ ↩² …` when cited more.
-- A `[^N]` whose `N` has no reference entry is left untouched, and the function
-  returns the dangling numbers so the caller can report them.
+- A `[^N]` whose `N` has no reference entry is left untouched. `link_citations`
+  keeps the plain `-> str` signature of every other pass in the chain; detection
+  moves to the gate below, which is stronger anyway.
 
 **`lib/validate.py`**
-- A dangling `[^N]` in an assembled report is a fatal finding. Today it ships as
-  visible garbage in the PDF.
+- A literal `[^` surviving anywhere in an assembled `report.md` is a fatal
+  finding. After `link_citations` every resolvable marker has become an anchor,
+  so a surviving `[^` is by definition a citation that resolves to nothing.
+  Today it ships as visible garbage in the PDF.
 
 **`templates/report.css`**
 - `.cite a` — superscript sizing, accent colour, no underline, and

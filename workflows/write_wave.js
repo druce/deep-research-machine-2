@@ -2,19 +2,38 @@ export const meta = {
   name: 'sra-write-wave',
   description: 'write -> critic -> rewrite for each report section (spec §15.1, §15.2)',
   phases: [
-    { title: 'Write', detail: 'one writer per section, from its wiki page' },
-    { title: 'Critique', detail: 'adversarial review with citation verification' },
-    { title: 'Rewrite', detail: 'apply the critique, re-run hard checks' },
+    { title: 'Risks' },
+    { title: 'Valuation' },
+    { title: 'Financial Strength' },
+    { title: 'Competitive Landscape' },
+    { title: 'Supply Chain Positioning' },
+    { title: 'Business Model' },
+    { title: 'Company Profile' },
   ],
 }
 
 // The cold build's write phase: seven sections x three agents (§15.1).
 //
-// A pipeline, not three barriers. Sections are independent — they read
-// different wiki pages and write different files — so valuation can be in
-// rewrite while risk_news is still drafting. Three barriers would make every
-// stage wait for the slowest section, which on a 21-agent wave is most of the
-// wall clock for no benefit.
+// Seven independent chains, launched together — not three stages over seven
+// sections. Each section runs its own write -> critic -> rewrite to completion
+// and shares no state with the others: they read different wiki pages and
+// write different files, so nothing one section does can hold up another.
+// Progress groups are per SECTION rather than per stage, because "valuation is
+// in rewrite while risk_news is still drafting" is the true picture and a
+// stage-shaped display hides it.
+//
+// The harness caps concurrent agent() calls at min(16, max(2, cores - 2)) — 6
+// on an 8-core machine — and there is no setting for it; it is read from the
+// core count when the module loads. With seven sections one always waits. That
+// costs about one stage of slack rather than a doubled makespan, because a
+// slot is held per agent() call rather than per chain, so a chain releases its
+// slot between stages and the FIFO queue self-balances. Sections are ordered
+// LONGEST FIRST so the one that queues is the cheapest (profile, 1000 words)
+// instead of the dearest (risk_news, 2700).
+//
+// Splitting the wave across two Workflow invocations would give 12 slots (the
+// semaphore is per run) and is deliberately not done: it buys one section out
+// of seven and costs a split summary object.
 //
 // The script itself does no file I/O: workflow scripts have no filesystem, and
 // they do not need one here. Every agent reads its own prompt parts off disk
@@ -27,9 +46,12 @@ export const meta = {
 //   sections    [{id, title, wiki_page, word_target, hard_checks}]
 //   char_caps   {<section id>: <max_length in characters>} — optional
 
-const { ticker, company, workdir, report_date, sections, char_caps } = args
+// Some harness builds deliver `args` as a JSON string rather than a parsed
+// object; destructuring that directly yields undefined and fails opaquely at
+// the first `sections.length`. Accept either shape.
+const input = typeof args === 'string' ? JSON.parse(args) : args
 
-const REPO = 'the repo root (where sra.py lives)'
+const { ticker, company, workdir, report_date, sections, char_caps } = input
 
 function draftPath(section) {
   return `${workdir}/reports/${report_date}/sections/${section.id}.md`
@@ -37,6 +59,15 @@ function draftPath(section) {
 
 function critiquePath(section) {
   return `${workdir}/reports/${report_date}/sections/${section.id}.critique.md`
+}
+
+// One log per agent, under the run's log/ directory (§23.4). Agents cannot see
+// their own token usage, so these carry what only the agent knows — what it
+// read, what it ran, what it decided — and `sra.py run-log` joins the token
+// counts in from run_stats.json afterwards.
+function logPath(section, stage, sequence) {
+  const n = String(sequence).padStart(2, '0')
+  return `${workdir}/reports/${report_date}/log/${n}_${stage}_${section.id}.md`
 }
 
 function hardChecks(section) {
@@ -51,7 +82,7 @@ function hardChecks(section) {
 
 // Every prompt opens the same way: who you are, what to read, and the fact that
 // the pieces live on disk rather than in this script.
-function preamble(section, role) {
+function preamble(section, role, stage, sequence) {
   return [
     `You are the ${role} for section "${section.id}" (${section.title}) of an`,
     `equity research report on ${company} (${ticker}).`,
@@ -78,13 +109,58 @@ function preamble(section, role) {
     `  {report_date} = ${report_date}`,
     `  {draft_path} = ${draftPath(section)}`,
     `  {critique_path} = ${critiquePath(section)}`,
+    `  {log_path} = ${logPath(section, stage, sequence)}`,
     `  {hard_checks_json} = ${hardChecks(section)}`,
+    '',
+    taskLogContract(section, stage, sequence),
+  ].join('\n')
+}
+
+// Spelled out in every prompt rather than left to the agent definition: an
+// agent that skips its log leaves a hole in the run log nobody can fill later,
+// because the information was never anywhere but in that agent's context.
+function taskLogContract(section, stage, sequence) {
+  return [
+    'BEFORE you start, record the time:',
+    '  date -u +%Y-%m-%dT%H:%M:%SZ',
+    '',
+    'AFTER you finish, take the time again and write your task log to',
+    `${logPath(section, stage, sequence)} — exactly this shape, and nothing else`,
+    'in that file:',
+    '',
+    '  ---',
+    `  purpose: ${stage}`,
+    `  section: ${section.id}`,
+    '  round: 1',
+    `  label: "${stage}:${section.id}"`,
+    '  started_at: <the first timestamp>',
+    '  finished_at: <the second timestamp>',
+    '  status: ok | degraded | failed',
+    '  outputs: [<paths you wrote, relative to the run directory>]',
+    '  ---',
+    '',
+    '  ## Inputs',
+    '  - the wiki page, artifacts and prompts you actually read, as a list',
+    '',
+    '  ## Commands',
+    '  - each sra.py or lib command you ran, with its outcome in a few words',
+    '',
+    '  ## Outputs',
+    '  - what you wrote, with word counts',
+    '',
+    '  ## Notes',
+    '  What you decided and why, anything you could not verify, and any gap you',
+    '  recorded as a question. Be specific and brief — this is the only account',
+    '  of your work that survives.',
+    '',
+    'Write the log even when the work failed. A failed stage with no log is',
+    'indistinguishable from a stage that never ran.',
   ].join('\n')
 }
 
 function writePrompt(section) {
   return [
-    preamble(section, 'WRITER'),
+    preamble(section, 'WRITER', 'section-write', 1),
     '',
     `Follow the "## Writer" block of prompts/write/${section.id}.md.`,
     `Write the section to ${draftPath(section)}.`,
@@ -102,7 +178,7 @@ function writePrompt(section) {
 
 function criticPrompt(section) {
   return [
-    preamble(section, 'CRITIC'),
+    preamble(section, 'CRITIC', 'section-critic', 2),
     '',
     'Follow the "## CRITIQUE PROCEDURE" block of prompts/write/_shared.md and',
     `the "## Critic" block of prompts/write/${section.id}.md.`,
@@ -116,13 +192,14 @@ function criticPrompt(section) {
     '',
     'Return, as your final message, a JSON object and nothing else:',
     '  {"section": "<id>", "critique_path": "<path>", "items": <n>,',
-    '   "contradicted": <n>, "unsupported": <n>}',
+    '   "contradicted": <n>, "unsupported": <n>, "blocking": [...]}',
+    'where "blocking" names the findings a rewrite must not leave unaddressed.',
   ].join('\n')
 }
 
 function rewritePrompt(section) {
   return [
-    preamble(section, 'REWRITE AGENT'),
+    preamble(section, 'REWRITE AGENT', 'section-rewrite', 3),
     '',
     'Follow the "## REWRITE PROCEDURE" block of prompts/write/_shared.md and',
     `the "## Rewrite" block of prompts/write/${section.id}.md.`,
@@ -156,34 +233,68 @@ const STAGE_SCHEMA = {
   additionalProperties: true,
 }
 
-log(`write wave: ${sections.length} sections into reports/${report_date}/sections/`)
+// The critic had no schema at all, so its findings came back as an unparsed
+// string and nothing downstream could count them. The flow is unchanged — the
+// rewrite always runs — but what the critic found is now recorded.
+const CRITIQUE_SCHEMA = {
+  type: 'object',
+  properties: {
+    section: { type: 'string' },
+    critique_path: { type: 'string' },
+    items: { type: 'number' },
+    contradicted: { type: 'number' },
+    unsupported: { type: 'number' },
+    blocking: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['section', 'critique_path'],
+  additionalProperties: true,
+}
 
-const results = await pipeline(
-  sections,
-  (section) =>
-    agent(writePrompt(section), {
-      label: `write:${section.id}`,
-      phase: 'Write',
-      agentType: 'sra-writer',
-      schema: STAGE_SCHEMA,
-    }),
-  // Later stages take the ORIGINAL section, not the previous result: a stage
-  // that died returns null, and rebuilding the prompt from it would take the
-  // whole item down rather than just that stage.
-  (_draft, section) =>
-    agent(criticPrompt(section), {
-      label: `critic:${section.id}`,
-      phase: 'Critique',
-      agentType: 'sra-writer',
-    }),
-  (_critique, section) =>
-    agent(rewritePrompt(section), {
-      label: `rewrite:${section.id}`,
-      phase: 'Rewrite',
-      agentType: 'sra-writer',
-      schema: STAGE_SCHEMA,
-    }),
-)
+// Longest first: under the concurrency cap the last section to be dispatched is
+// the one that waits, and it should be the cheapest one.
+const ordered = sections.slice().sort(
+  (a, b) => (b.word_target || 0) - (a.word_target || 0))
+
+log(`write wave: ${ordered.length} sections into reports/${report_date}/sections/`
+    + ` — longest first: ${ordered.map((s) => s.id).join(', ')}`)
+
+// One self-contained chain per section. Every agent() inside carries the same
+// `phase`, so the progress display shows seven per-section groups.
+async function runSection(section) {
+  const phase = section.title
+
+  const draft = await agent(writePrompt(section), {
+    label: `write:${section.id}`,
+    phase,
+    agentType: 'sra-writer',
+    schema: STAGE_SCHEMA,
+  })
+
+  // Later stages are built from the ORIGINAL section, never from the previous
+  // result: a stage that died returns null, and rebuilding the prompt from it
+  // would take the whole section down rather than just that stage.
+  const critique = await agent(criticPrompt(section), {
+    label: `critic:${section.id}`,
+    phase,
+    agentType: 'sra-writer',
+    schema: CRITIQUE_SCHEMA,
+  })
+
+  const rewrite = await agent(rewritePrompt(section), {
+    label: `rewrite:${section.id}`,
+    phase,
+    agentType: 'sra-writer',
+    schema: STAGE_SCHEMA,
+  })
+
+  // The rewrite is the section's final word; the draft stands only if the
+  // rewrite died, in which case there is still a file on disk to account for.
+  const final = rewrite || draft
+  if (!final) return null
+  return { ...final, section: section.id, critique: critique || null }
+}
+
+const results = await parallel(ordered.map((section) => () => runSection(section)))
 
 const written = results.filter(Boolean)
 const failed = written.filter((r) => !r.hard_checks_passed)
@@ -192,9 +303,9 @@ if (failed.length) {
   // file on disk, and the assembler would embed it without knowing.
   log(`hard checks FAILED for: ${failed.map((r) => r.section).join(', ')}`)
 }
-if (written.length < sections.length) {
+if (written.length < ordered.length) {
   const done = written.map((r) => r.section)
-  const missing = sections.filter((s) => done.indexOf(s.id) === -1)
+  const missing = ordered.filter((s) => done.indexOf(s.id) === -1)
   log(`no draft returned for: ${missing.map((s) => s.id).join(', ')}`)
 }
 
@@ -202,4 +313,6 @@ return {
   report_date,
   sections: written,
   hard_checks_failed: failed.map((r) => r.section),
+  log_dir: `${workdir}/reports/${report_date}/log`,
+  order: ordered.map((s) => s.id),
 }

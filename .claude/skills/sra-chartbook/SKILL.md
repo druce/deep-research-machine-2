@@ -59,6 +59,15 @@ judgment over files, with no web or MCP needed — and this prompt:
 > exists; `order` starts at 1 and strictly increases.
 >
 > You cannot see the PNGs. Judge from the manifests and the wiki.
+>
+> Your task log (§23.4): stamp `date -u +%Y-%m-%dT%H:%M:%SZ` before you start
+> and again when you finish, then write ONE log to
+> `<abs run dir>/log/<NN>_chart-select_chartbook.md` with frontmatter
+> `purpose: chart-select`, `section: null`, `round: 1`,
+> `label: "chart-select"`, `started_at`, `finished_at`, `status`, `outputs`,
+> and body headings `## Inputs`, `## Outputs`, `## Notes`. In `## Notes`, name
+> the candidates you rejected and why — the chartbook records only what you
+> kept. Write the log even if the selection failed.
 
 ## Step 3 — Verify the selection (Bash)
 
@@ -93,7 +102,9 @@ misunderstood.
 ## Step 4 — Bookkeeping (Bash)
 
 ```bash
-uv run python sra.py wiki-log <TICKER> --entry "chartbook: <n> of <m> candidates selected across <k> sections"
+uv run python sra.py wiki-log <TICKER> \
+    --entry "chartbook: <n> of <m> candidates selected across <k> sections" \
+    --agents 1 --tokens <T> --minutes <M> --run <RUN>
 ```
 
 ## Report

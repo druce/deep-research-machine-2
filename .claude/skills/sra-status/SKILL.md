@@ -64,7 +64,7 @@ carrying the backlog. Mention `wiki-lint` warnings by kind — it is advisory
 (§22.1), so report the count and the worst one, not the whole list.
 
 **Report.** The latest run, whether it is snapshotted, which sections are dirty
-(`report.sections_dirty`), and what the run cost against §23.3's ceilings — 80
+(`report.sections_dirty`), and what the run cost against §23.3's ceilings — 100
 subagents, 6M tokens, 60 minutes. Report `budget_violations` verbatim if any.
 A run that exists but is not snapshotted means a build stopped after assembly;
 say which step it stopped before.

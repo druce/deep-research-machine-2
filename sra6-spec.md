@@ -162,7 +162,7 @@ evidence → synthesized knowledge → report
 
    - Cold build:
 
-     - ≤80 model subagents,
+     - ≤100 model subagents,
      - ≤6M tokens (reduce to half or less if possible)
      - ≤60 minutes.
    
@@ -334,6 +334,8 @@ data/PANW/
     evaluation.json
     sections/
     run_stats.json
+    run_log.md              the readable audit log (§23.4)
+    log/                    one markdown log per agent, written by the agent
 
   reports/latest -> <run>/
 
@@ -2325,7 +2327,7 @@ Group them into batches of `QUESTIONS_PER_BATCH` (2–4) related questions.
 
 Dispatch one `sra-researcher` subagent per batch, across all sections at once.
 
-Concurrency is capped at `MAX_PARALLEL_AGENTS` (default 8) batches in flight. When the open set needs more batches than that, they run as successive waves: parallel within a wave, sequential across waves, until the open set is exhausted or the run's wall-clock or token budget is reached (§23.3).
+Concurrency is capped at `MAX_PARALLEL_AGENTS` (default 16) batches in flight. When the open set needs more batches than that, they run as successive waves: parallel within a wave, sequential across waves, until the open set is exhausted or the run's wall-clock or token budget is reached (§23.3).
 
 The cap is a concurrency width, not a question limit. Eight batches already cover 16–32 questions, and nothing refuses a larger open set — the budget is what bounds spend, not an arbitrary question count.
 
@@ -2591,6 +2593,7 @@ Frontmatter:
 
 ```yaml
 section: valuation
+summary: One line saying what this page establishes.
 updated_at: ...
 built_from:
   - id: ...
@@ -2598,12 +2601,17 @@ built_from:
 open_questions: []
 ```
 
-`00_index.md` catalogs:
+`summary` is written by whoever writes the page. It is the row the index shows, and only the author can write it: a working note opens with its scope and period conventions, so anything derived from the prose describes the assignment rather than the finding. `wiki-lint` raises `missing-summary` when it is absent, and the index falls back to deriving one — skipping preamble, stripping citations and status tags, and showing nothing at all rather than a fragment, because a wrong summary makes the index look maintained while misdescribing the page.
 
-- page,
-- one-line description,
-- last updated,
-- source count.
+`00_index.md` is the wiki's NAVIGATION page, not a catalog. It carries:
+
+- the seven report sections **in report order**, each a link, with its summary, last update, source count, open-question count and dirty flag;
+- a row for every section that has **no page yet**, marked `not written` — a section nobody researched is the most important thing the table can say, and a listing of the files that happen to exist cannot say it;
+- entity and other pages, linked, in their own groups;
+- a rollup of every page's `open_questions`, grouped by page — what is still unknown, without opening seven 60KB pages;
+- links to the phase journal, the question ledger and the latest report.
+
+It is generated, never hand-edited, and carries no generated-at stamp: regenerating it must not show up as a diff.
 
 `log.md` is an append-only phase journal.
 
@@ -2614,7 +2622,7 @@ wiki-index
 wiki-log
 ```
 
-Subagents do not update them directly.
+Subagents do not update them directly. This is about SHARED driver-maintained state; it does not cover the per-agent task logs of §23.4, which each agent writes for itself.
 
 ------
 
@@ -2656,6 +2664,12 @@ Cold build:
 7 sections × 3 agents ≈ 21 agents
 ```
 
+The seven sections are **independent chains launched together**, not three stages over seven sections. Each section runs its own write → critic → rewrite to completion; they read different wiki pages and write different files, so nothing one section does can hold up another. Progress is grouped per section, because "valuation is rewriting while risk_news still drafts" is the true picture and a stage-shaped display hides it.
+
+Sections are dispatched **longest first**. The harness caps concurrent workflow agents below the section count (§23.1), so one section always queues, and it should be the cheapest one.
+
+Every agent in the wave writes its own task log (§23.4).
+
 ### **Incremental single-section path**
 
 `/sra-write` uses one writer with:
@@ -2683,13 +2697,17 @@ Runs:
 write → critic → rewrite
 ```
 
-for each section.
+for each section, as one self-contained chain per section under a single `parallel()`.
 
 All agents:
 
 ```text
 agentType: "sra-writer"
 ```
+
+`meta.phases` names the seven section titles from `sections.yaml`, and every agent in a section's chain carries that section's title as its `phase`.
+
+The critic returns a schema, not free text — `{section, critique_path, items, contradicted, unsupported, blocking}`. The flow does not branch on it; it exists so what the critic found is recorded rather than discarded.
 
 #### **`workflows/polish_chain.js`**
 
@@ -3458,8 +3476,8 @@ ticker_dir(data_root, ticker) = data_root / ticker.upper()
 
 | **Command**                        | **Purpose**                     |
 | ---------------------------------- | ------------------------------- |
-| `wiki-log T --entry E`             | append phase journal            |
-| `wiki-index T`                     | rebuild wiki index              |
+| `wiki-log T --entry E [--agents N] [--tokens N] [--minutes M] [--run R]` | append phase journal |
+| `wiki-index T`                     | rebuild wiki navigation page    |
 | `mark-dirty T --section S`         | dirty a report section          |
 | `peers-select T [--ranked-file P]` | deterministic peer pin-and-fill |
 
@@ -3469,6 +3487,7 @@ ticker_dir(data_root, ticker) = data_root / ticker.upper()
 | ---------------------- | ------------------------------------------------------------ |
 | `charts T [--verdict]` | render chart candidates                                      |
 | `assemble T`           | deterministic concatenation, citation processing, and rendering |
+| `run-log T [--run R]`  | assemble the run's audit log from its per-agent task logs    |
 | `snapshot T`           | create immutable report-run snapshot                         |
 
 ### **One-shot**
@@ -3795,13 +3814,16 @@ Increments `attempts` and returns the resulting status, flipping `open` to `defe
 Tunable constants for the §14 loop. Changing one is a commit, not a runtime flag, and `tests/test_research_limits.py` pins the defaults:
 
 ```python
-MAX_PARALLEL_AGENTS = 8       # answer batches in flight per wave
+MAX_PARALLEL_AGENTS = 16      # answer batches in flight per wave
+MAX_INCREMENTAL_SUBAGENTS = 8 # §23.2's directed-research spend ceiling
 QUESTIONS_PER_BATCH = (2, 4)  # questions grouped into one batch
 MAX_ATTEMPTS = 3              # empty dispatches before a question defers
 DEFAULT_ROUNDS = 3            # R in §14
 ```
 
-`MAX_PARALLEL_AGENTS` is a concurrency width, not a question ceiling. Raising it widens each wave; it does not change what the run is allowed to spend, which is §23.3's business.
+`MAX_PARALLEL_AGENTS` is a concurrency width, not a question ceiling. Raising it widens each wave; it does not change what the run is allowed to spend, which is §23.3's business. It is sized against the harness's Agent-tool concurrency (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, 24 in `.claude/settings.json`), so a cold build's 10-14 round-1 batches run as one wave.
+
+`MAX_INCREMENTAL_SUBAGENTS` is a SPEND ceiling and deliberately a separate constant. The two were one number until widening a wave would have silently doubled what §23.2 allows an incremental run to cost.
 
 ### **`lib/references.py`**
 
@@ -4021,7 +4043,7 @@ Re-running `/sra-build` skips completed fresh phases.
 Cold-build ceiling:
 
 ```text
-80
+100
 ```
 
 Reducing research rounds from three to two is the primary mechanism for lowering agent use.
@@ -4033,6 +4055,19 @@ Expected wall clock:
 ```
 
 Wall clock is dominated by research and write depth rather than plumbing. Answer fan-outs and the write wave run wide, so parallel width is what keeps a 74-agent graph inside the §2.5 hour.
+
+### **Concurrency ceilings the host imposes**
+
+Parallel width is bounded by the harness, not by this spec, and by two independent limits that are often confused:
+
+| Dispatch path | Limit | Configurable |
+| --- | --- | --- |
+| Agent tool (skills: answerers, deep research, rater, lint, chart selection) | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, default 20 | yes, via `.claude/settings.json` |
+| Workflow `agent()` (`write_wave.js`, `polish_chain.js`) | `min(16, max(2, cpu_cores - 2))` | no — derived from the core count at module load |
+
+The answerer fan-out is the widest phase at ~23 agents, so the Agent-tool limit is raised to 24 in `.claude/settings.json`; at the default of 20 the last three answerers of a round spill into a second wave for no reason but the cap.
+
+The workflow limit cannot be raised. On an 8-core machine it is 6, and the write wave has 7 sections, so one section always queues. Slots are held per `agent()` call rather than per chain and the queue is FIFO, so a chain releases its slot between stages and the backlog self-balances: the cost is roughly one extra stage of slack, not a doubled makespan. §15.2 requires the write wave to order sections longest-first so that the section which queues is the cheapest one.
 
 ### **23.2 Incremental flows**
 
@@ -4107,7 +4142,7 @@ Ceilings:
 
 One invocation may carry several instructions (§3). They batch into the same round, so the ceiling binds on total agents, not on question count.
 
-The 8 is `MAX_PARALLEL_AGENTS` (§20) — a concurrency width, not a question cap. A larger open set runs as successive waves until the wall clock or token budget is reached; whatever is not reached stays `open` for the next run.
+The 8 is `MAX_INCREMENTAL_SUBAGENTS` (§20) — a spend ceiling, distinct from `MAX_PARALLEL_AGENTS`, which is a concurrency width. A larger open set runs as successive waves until the wall clock or token budget is reached; whatever is not reached stays `open` for the next run.
 
 ### **Report-only edit**
 
@@ -4123,7 +4158,7 @@ No new research.
 Cold build:
 
 ```text
-≤80 model subagents
+≤100 model subagents
 ≤6M tokens (target ≤3M)
 ≤60 minutes
 ```
@@ -4133,7 +4168,7 @@ Budget check:
 ```python
 check_budgets(
     run_stats,
-    max_subagents=80,
+    max_subagents=100,
     max_tokens=6_000_000,
     max_minutes=60
 )
@@ -4207,9 +4242,17 @@ to the previous snapshot.
 
 ### **23.4 Instrumentation**
 
-`wiki/log.md` is a phase journal.
+Three artifacts, each answering a different question.
 
-It is not an audit log.
+| Artifact | Question | Written by |
+| --- | --- | --- |
+| `wiki/log.md` | what phases ran, in order, across every run | orchestrating skills, at phase boundaries |
+| `reports/<run>/run_stats.json` | what the run cost | orchestrating skills, per agent |
+| `reports/<run>/run_log.md` | what the run actually did | `sra.py run-log`, from per-agent task logs |
+
+#### **The phase journal**
+
+`wiki/log.md` is a phase journal. It is not an audit log — the audit log is `run_log.md`.
 
 Orchestrating skills call:
 
@@ -4217,11 +4260,54 @@ Orchestrating skills call:
 sra.py wiki-log
 ```
 
-at phase boundaries.
+at phase boundaries. Manual granular commands may leave no log entry.
 
-Manual granular commands may leave no log entry.
+An entry may carry what the phase cost and a link to the run log that details it:
 
-Per-run statistics:
+```text
+sra.py wiki-log T --entry "lint: 40 findings" \
+    --agents 6 --tokens 412000 --minutes 8.4 --run 2026-08-11
+```
+
+```markdown
+- 2026-08-12T03:57:11+00:00 lint: 40 findings
+  [6 agents · 412k tok · 8.4 min](../reports/2026-08-11/run_log.md)
+```
+
+Still one entry per phase boundary. With none of those flags the output is exactly what it has always been.
+
+#### **Per-agent task logs**
+
+Every dispatched agent writes ONE log, and writes it itself:
+
+```text
+reports/<run>/log/<NN>_<purpose>_<slug>.md
+```
+
+This is not a violation of §14.2's "subagents do not update them directly": that rule protects shared driver-maintained state, where a second writer corrupts a file. A task log has exactly one writer and one reader, so there is no contention, no interleaving, and no ordering to negotiate.
+
+It has to be the agent because nothing else can. A Workflow script has no filesystem and §15.2 bans `Date.now()`, so it can neither log nor time itself; the orchestrating skill sees only an agent's final message. What was read, what was fetched, what was decided and how long it took exists nowhere but in that agent's own context.
+
+Frontmatter, uniform across every task type:
+
+```yaml
+purpose: section-write        # the closed vocabulary below
+section: valuation            # or null
+round: 1
+label: "write:valuation"
+started_at: 2026-08-12T03:12:04Z
+finished_at: 2026-08-12T03:19:41Z
+status: ok                    # ok | degraded | failed
+outputs: [sections/valuation.md]
+```
+
+Body: `## Inputs`, `## Commands`, `## Outputs`, `## Notes` — fixed headings, so every task reads alike and the assembler can find them.
+
+Agents that have Bash stamp themselves with `date -u +%Y-%m-%dT%H:%M:%SZ`. `sra-rater` has no Bash; its log omits the stamps and sorts last. A log is written even when the work failed — a failed stage with no log is indistinguishable from a stage that never ran.
+
+Agents do not record their own token counts. They cannot see them.
+
+#### **Per-run statistics**
 
 ```text
 reports/<run>/run_stats.json
@@ -4268,7 +4354,31 @@ chart-select
 <polish-stage-name>
 ```
 
-The same vocabulary, plus `seed` and `user`, is the `origin` of a ledger question (§14.0), so a question's provenance and an agent's cost record use one set of names.
+The same vocabulary, plus `seed` and `user`, is the `origin` of a ledger question (§14.0), so a question's provenance and an agent's cost record use one set of names. It is also the `purpose` of a task log, which is what lets the two be joined.
+
+#### **The run log**
+
+```text
+sra.py run-log T [--run R]   ->   reports/<run>/run_log.md
+```
+
+Deterministic and idempotent, like the source manifest and the wiki index. It takes no lock and can be run against a build still in flight, which is when it is most wanted. It contains:
+
+1. the run's start, finish, wall clock, agent count, token totals, `degraded_kinds`, and any `check_budgets` violation verbatim;
+2. **cost by purpose** — agents, input, output and logged time per phase. This is the "which phase to cut" table that per-agent token counts were always for and that raw JSON could never present;
+3. a **timeline**, one row per task in `started_at` order, each linking to its own log;
+4. **unattributed** entries (see below);
+5. each task's own account, long blocks truncated with a link to the full text;
+6. links to the run's artifacts, the wiki index and the phase journal.
+
+Two rules the assembler enforces:
+
+- **Tokens are joined, never duplicated.** An agent cannot see its own usage, so counts stay in `run_stats.json` and are matched to task logs on `(purpose, section, round)`, consumed one-for-one. Exactly one writer for any given fact.
+- **Nothing is silently dropped.** A `run_stats` entry with no task log, and a task log with no `run_stats` entry, both appear under **Unattributed**. A run log that omitted either would read as complete coverage of a run it had barely described.
+
+A malformed task log is read for whatever it does carry rather than skipped. Agents write these by hand, and the run log is the artifact you reach for once something has already gone wrong: failing to build it because one agent mis-quoted a colon would lose the other twenty accounts.
+
+`run_log.md` is a snapshot deliverable (§15.3), so a stamped run carries its own audit trail.
 
 ------
 

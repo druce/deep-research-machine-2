@@ -11,7 +11,19 @@ from __future__ import annotations
 # §14 step 2. A CONCURRENCY WIDTH, not a question limit: when the open set needs
 # more batches than this, they run as successive waves. Nothing refuses a larger
 # open set — the run's budget is what bounds spend (§23.3).
-MAX_PARALLEL_AGENTS = 8
+#
+# Sized against the harness, which is what actually stops agents from starting:
+# Agent-tool concurrency is `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, set to 24 in
+# `.claude/settings.json`. A cold build's round 1 produces 10-14 batches, so a
+# width of 16 runs it as ONE wave; at 8 it ran as two, paying a full answerer's
+# wall clock for nothing. The headroom below 24 is deliberate — a wave is not
+# the only thing in flight.
+MAX_PARALLEL_AGENTS = 16
+
+# §23.2's incremental ceiling: "directed research ≤8 model subagents". A SPEND
+# limit, not a width, and the two must not share a constant — widening a wave
+# would otherwise silently double what an incremental run is allowed to cost.
+MAX_INCREMENTAL_SUBAGENTS = 8
 
 # §14 step 2: batches of 2-4 related questions, same section first.
 QUESTIONS_PER_BATCH = (2, 4)

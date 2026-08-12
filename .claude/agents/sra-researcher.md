@@ -31,6 +31,11 @@ uv run python sra.py grep <TICKER> "<terms>" [--kinds sec_filing,transcript] [--
 uv run python sra.py show <TICKER> <id>             # full text of one source or JSON artifact
 ```
 
+`show` prints the whole artifact — it does not truncate. What truncates is the
+harness's cap on command output, at roughly 34KB. A 10-K or 10-Q will hit it.
+That is not a defect to report: take the path from `manifest` and read the file
+directly with the Read tool, which paginates.
+
 `grep` takes whitespace-separated terms, each a case-insensitive regex, and ranks
 hits; try two or three phrasings per question before concluding nothing is there.
 Exact figures usually live in the structured JSON artifacts — `show` them by id
@@ -124,6 +129,20 @@ Your final message is read by the orchestrator, not stored as evidence. Return:
 Do not run `sra.py fetch-urls`, `mark-answered`, `add-questions`, `wiki-index` or
 `wiki-log`. All bookkeeping is the driver's, run once after every batch in the
 round returns.
+
+## Your task log
+
+The one file you write for yourself. When a prompt gives you a `{log_path}`,
+write exactly one log there in the shape the prompt specifies (§23.4): what you
+read, what you fetched and whether it worked, what you concluded, and what you
+could not verify. Stamp it with `date -u +%Y-%m-%dT%H:%M:%SZ` before you start
+and again when you finish.
+
+Nothing else writes that file, so it is not the shared bookkeeping the paragraph
+above forbids. Write it even when the work failed — `sra.py run-log` assembles
+these into the run's audit log, and a failed batch with no log is
+indistinguishable from one that never ran. Do not record token counts; you
+cannot see them and the driver joins them in afterwards.
 
 ## Working rules — read before you fetch anything
 

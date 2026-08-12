@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -67,7 +68,11 @@ CITATION_RE = re.compile(r"\[\^([A-Za-z0-9][\w.\-]*)\]")
 # §8.4 check 6. Provider key shapes, so a ROTATED key — one the current
 # environment no longer holds, and which therefore no env comparison can find —
 # is still caught sitting in an artifact.
-OPENAI_KEY_RE = re.compile(r"sk-[A-Za-z0-9_-]{20,}")
+# The leading boundary is load-bearing, not decoration. Without it `sk-` matches
+# inside ordinary words — `mu[sk-]colossus`, `elon-mu[sk-]ai-spacex` — and any
+# corpus about Elon Musk fails the fatal gate on its own URLs. The SPCX build hit
+# 28 of these, every one from the word "musk". A real key never continues a word.
+OPENAI_KEY_RE = re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}")
 FRED_KEY_RE = re.compile(r"\b[0-9a-f]{32}\b")
 HEX32_RE = re.compile(r"\b[0-9a-fA-F]{32}\b")
 
@@ -330,12 +335,24 @@ def _citation_finding(cid: str, status: str, rel: str) -> Finding | None:
     )
 
 
+CRITIQUE_SUFFIX = ".critique.md"
+
+
 def _cited_pages(ticker_dir: Path) -> list[Path]:
     """Pages whose citations carry bronze ids directly: wiki pages and report
-    section drafts (§8.2). Assembled reports are handled separately, since
-    their citations are numeric."""
+    section DRAFTS (§8.2). Assembled reports are handled separately, since
+    their citations are numeric.
+
+    `<section>.critique.md` is excluded. A critique is the write wave's working
+    note ABOUT a draft (§15.1) — it never reaches the report, and its author
+    writes shorthand like `[^10q]` when quoting the draft's own citations back
+    at it. Failing the fatal gate on a scratch artifact teaches people to
+    distrust the gate. `write_snapshot` already draws this line the same way,
+    excluding critiques from a run's section list.
+    """
     pages = sorted((ticker_dir / "wiki").rglob("*.md"))
-    pages += sorted((ticker_dir / "reports").glob("*/sections/*.md"))
+    pages += sorted(p for p in (ticker_dir / "reports").glob("*/sections/*.md")
+                    if not p.name.endswith(CRITIQUE_SUFFIX))
     return pages
 
 
@@ -400,6 +417,31 @@ def _check_assembled_reports(ticker_dir: Path, data_root: Path) -> list[Finding]
     return findings
 
 
+_IMAGE_TARGET_RE = re.compile(r"!\[[^\]\n]*\]\(([^)\n]+)\)")
+
+
+def _check_report_exhibits(ticker_dir: Path) -> list[Finding]:
+    """Every image in an assembled report appears exactly once (§16.2).
+
+    Three independent emitters place charts — the dashboard template, the
+    per-section exhibit embeds, and (historically) an appendix gallery. Any of
+    them can regress, and only this check sees the finished document.
+    """
+    findings: list[Finding] = []
+    for report in sorted((ticker_dir / "reports").glob("*/report.md")):
+        rel = _rel(report, ticker_dir)
+        counts = Counter(_IMAGE_TARGET_RE.findall(
+            report.read_text(encoding="utf-8")))
+        for target, seen in sorted(counts.items()):
+            if seen > 1:
+                findings.append(Finding(
+                    "error", "exhibit-duplicated", rel,
+                    f"image {target} appears {seen} times; each exhibit must "
+                    f"be placed exactly once (§16.2)",
+                ))
+    return findings
+
+
 # --- check 5: derivations resolve ----------------------------------------
 
 def _reference_ids(value: object) -> list[str]:
@@ -418,20 +460,39 @@ def _reference_ids(value: object) -> list[str]:
     return ids
 
 
+def _resolves_anywhere(ticker_dir: Path, data_root: Path, ref: str) -> bool:
+    """Ticker artifacts first, then `_MACRO` — the same reach citations have.
+
+    A page may CITE `fred_dgs10` (§8.4 check 4 resolves into `_MACRO`), and
+    `built_from` is by definition the set of references the page cites, so a
+    derivation check with shorter reach makes the same id legal in prose and
+    fatal in frontmatter. The SPCX valuation page hit exactly that: it cited the
+    FRED risk-free rate for its WACC, recorded it in `built_from`, and failed
+    the build for it.
+    """
+    if resolve_artifact(ticker_dir, ref) is not None:
+        return True
+    macro = data_root / MACRO_TICKER
+    if macro.is_dir() and macro.resolve() != ticker_dir.resolve():
+        return resolve_artifact(macro, ref) is not None
+    return False
+
+
 def _check_derivation_refs(ticker_dir: Path, rel: str, ids: list[str],
-                           field: str) -> list[Finding]:
+                           field: str, data_root: Path) -> list[Finding]:
     """Unlike citation, derivation ACROSS layers is legitimate (§8.1) — silver
     is built from silver all the time — so any durable artifact satisfies
     this. What must not happen is a reference to something that is not there."""
     return [
         Finding("error", "derivation-unresolved", rel,
-                f"{field} id {ref!r} resolves to no artifact under this ticker (§8.4 check 5)")
+                f"{field} id {ref!r} resolves to no artifact under this ticker "
+                f"or {MACRO_TICKER} (§8.4 check 5)")
         for ref in dict.fromkeys(ids)
-        if resolve_artifact(ticker_dir, ref) is None
+        if not _resolves_anywhere(ticker_dir, data_root, ref)
     ]
 
 
-def _check_derivations(ticker_dir: Path) -> list[Finding]:
+def _check_derivations(ticker_dir: Path, data_root: Path) -> list[Finding]:
     findings: list[Finding] = []
 
     for path, _ in _iter_json(ticker_dir):
@@ -440,13 +501,14 @@ def _check_derivations(ticker_dir: Path) -> list[Finding]:
         except ValueError:
             continue  # already reported as a producer-shape error
         findings += _check_derivation_refs(
-            ticker_dir, _rel(path, ticker_dir), list(meta.derived_from), "derived_from")
+            ticker_dir, _rel(path, ticker_dir), list(meta.derived_from),
+            "derived_from", data_root)
 
     for path in sorted((ticker_dir / "wiki").rglob("*.md")):
         post = frontmatter.loads(path.read_text(encoding="utf-8"))
         findings += _check_derivation_refs(
             ticker_dir, _rel(path, ticker_dir),
-            _reference_ids(post.metadata.get("built_from")), "built_from")
+            _reference_ids(post.metadata.get("built_from")), "built_from", data_root)
 
     state_path = ticker_dir / ".state.json"
     if state_path.exists():
@@ -459,12 +521,12 @@ def _check_derivations(ticker_dir: Path) -> list[Finding]:
             if isinstance(entry, dict):
                 findings += _check_derivation_refs(
                     ticker_dir, rel, _reference_ids(entry.get("derived_from")),
-                    "derived_from")
+                    "derived_from", data_root)
         for entry in (state.get("wiki") or {}).values():
             if isinstance(entry, dict):
                 findings += _check_derivation_refs(
                     ticker_dir, rel, _reference_ids(entry.get("built_from")),
-                    "built_from")
+                    "built_from", data_root)
     return findings
 
 
@@ -589,7 +651,8 @@ def validate(ticker_dir: Path, data_root: Path) -> list[Finding]:
         findings += _check_source_doc(path, ticker_dir)
     findings += _check_citations(ticker_dir, data_root)
     findings += _check_assembled_reports(ticker_dir, data_root)
-    findings += _check_derivations(ticker_dir)
+    findings += _check_report_exhibits(ticker_dir)
+    findings += _check_derivations(ticker_dir, data_root)
     findings += _check_secrets(ticker_dir)
     findings += _check_recorded_requests(ticker_dir)
     return findings

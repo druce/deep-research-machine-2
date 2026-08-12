@@ -45,11 +45,21 @@ def _bronze(ticker_dir: Path, source_id: str = "2026-07-30_news_yahoo") -> None:
 def test_a_clean_page_produces_no_findings(tmp_ticker_dir: Path):
     _bronze(tmp_ticker_dir)
     write_page(tmp_ticker_dir, "competitive",
-               {"built_from": [{"id": "2026-07-30_news_yahoo",
+               {"summary": "PANW holds share against CRWD and FTNT.",
+                "built_from": [{"id": "2026-07-30_news_yahoo",
                                 "fetched_at": "2026-07-30T12:00:00+00:00"}]},
                "PANW holds a strong position.[^2026-07-30_news_yahoo]", now=NOW)
     update_index(tmp_ticker_dir)
     assert _lint(tmp_ticker_dir) == []
+
+
+def test_a_page_without_a_declared_summary_is_flagged(tmp_ticker_dir: Path):
+    """§14.2 asks the synthesizer for the one-line description. Without it the
+    index derives one from prose that opens with scope and period conventions,
+    so the row describes the assignment rather than the finding."""
+    write_page(tmp_ticker_dir, "competitive", {}, "PANW competes.", now=NOW)
+    update_index(tmp_ticker_dir)
+    assert "missing-summary" in _codes(_lint(tmp_ticker_dir))
 
 
 def test_an_empty_wiki_produces_no_findings(tmp_ticker_dir: Path):
@@ -188,7 +198,7 @@ def test_an_entity_page_missing_from_the_index_is_flagged(tmp_ticker_dir: Path):
     write_page(tmp_ticker_dir, "entities/crwd", {}, "CrowdStrike.", now=NOW)
     # deliberately not regenerating the index
     (tmp_ticker_dir / "wiki" / "00_index.md").write_text("# Wiki index\n", encoding="utf-8")
-    assert "entity-not-indexed" in _codes(_lint(tmp_ticker_dir))
+    assert "page-not-indexed" in _codes(_lint(tmp_ticker_dir))
 
 
 def test_an_indexed_entity_page_is_fine(tmp_ticker_dir: Path):
@@ -230,3 +240,18 @@ def test_a_held_lock_does_not_block_wiki_lint(tmp_path: Path):
         "acquired_at": "2026-08-11T12:00:00+00:00",
     }), encoding="utf-8")
     assert sra.main(["wiki-lint", "PANW", "--data-root", str(tmp_path)]) == 0
+
+
+def test_a_status_tag_may_carry_its_provider_and_as_of_date(tmp_ticker_dir: Path):
+    """§18's own example is `[CONSENSUS, yfinance, as of 2026-07-30]`. A check
+    that demanded the bare tag fired on prose written exactly as the spec
+    instructs."""
+    _bronze(tmp_ticker_dir)
+    write_page(tmp_ticker_dir, "valuation",
+               {"summary": "Consensus embeds a margin the data does not support.",
+                "built_from": [{"id": "2026-07-30_news_yahoo",
+                                "fetched_at": "2026-07-30T12:00:00+00:00"}]},
+               "FY2027 revenue of $9.8B [CONSENSUS, yfinance, as of 2026-07-30] "
+               "against guidance.[^2026-07-30_news_yahoo]", now=NOW)
+    update_index(tmp_ticker_dir)
+    assert "untagged-forward-number" not in _codes(_lint(tmp_ticker_dir))

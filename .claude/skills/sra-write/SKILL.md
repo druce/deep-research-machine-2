@@ -87,6 +87,18 @@ wave without making it careless:
 >
 > <the `## Critic` block of prompts/write/<SECTION>.md>
 
+Then add the task-log contract (§23.4):
+
+> Stamp `date -u +%Y-%m-%dT%H:%M:%SZ` before you start and again when you
+> finish, then write ONE log to
+> `{log_path}` = `<abs run dir>/log/<NN>_section-write_<SECTION>.md`, with
+> frontmatter `purpose: section-write`, `section: <SECTION>`, `round: 1`,
+> `label: "write:<SECTION>"`, `started_at`, `finished_at`, `status`,
+> `outputs`, and body headings `## Inputs`, `## Commands`, `## Outputs`,
+> `## Notes`. Record your self-critique in `## Notes`: what you changed on the
+> second pass, and what you left. Write the log even if the draft failed its
+> checks.
+
 **When `single_section_critic: true`** for this section, skip the self-critique
 paragraph and instead run the full three-agent chain — writer, then a separate
 critic agent on the `## Critic` block writing to
@@ -113,7 +125,10 @@ support the section, which is a research problem, not a writing one.
 
 ```bash
 uv run python sra.py validate <TICKER>
-uv run python sra.py wiki-log <TICKER> --entry "write <SECTION>: <n> words, hard checks passed"
+uv run python sra.py wiki-index <TICKER>
+uv run python sra.py wiki-log <TICKER> \
+    --entry "write <SECTION>: <n> words, hard checks passed" \
+    --agents 1 --tokens <T> --minutes <M> --run <RUN>
 ```
 
 `validate` is fatal: it resolves every `[^bronze-id]` in the draft. Exit 1 means

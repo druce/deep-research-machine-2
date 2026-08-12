@@ -24,11 +24,16 @@ export const meta = {
 //             script only honors it, and always runs the full five when the
 //             caller says nothing.
 
-const { ticker, company, workdir, report_date, sections, char_caps } = args
+// Some harness builds deliver `args` as a JSON string rather than a parsed
+// object; destructuring that directly yields undefined and fails opaquely.
+// Accept either shape.
+const input = typeof args === 'string' ? JSON.parse(args) : args
+
+const { ticker, company, workdir, report_date, sections, char_caps } = input
 
 const ALL_STAGES = ['cross_section', 'conclusion', 'critique', 'polish', 'evaluate']
-const requested = Array.isArray(args.stages) && args.stages.length
-  ? ALL_STAGES.filter((s) => args.stages.includes(s))
+const requested = Array.isArray(input.stages) && input.stages.length
+  ? ALL_STAGES.filter((s) => input.stages.includes(s))
   : ALL_STAGES
 const runs = (stage) => requested.includes(stage)
 
@@ -54,7 +59,59 @@ const conclusionWords = char_caps && char_caps.conclusion
   ? Math.round(char_caps.conclusion / 8)
   : 900
 
-function preamble(role) {
+// One log per agent under the run's log/ directory (§23.4). `purpose` must come
+// from §23.4's closed vocabulary — which is why these are `cross-section` and
+// not the `cross-check` the progress label uses.
+const LOG_SEQUENCE = {
+  cross_section: ['section', 20], conclusion: ['conclusion', 21],
+  critique: ['critique', 22], polish: ['polish', 23], evaluate: ['evaluate', 24],
+}
+const LOG_PURPOSE = {
+  cross_section: 'cross-section', conclusion: 'conclusion',
+  critique: 'critique', polish: 'polish', evaluate: 'evaluate',
+}
+
+function logPath(stage) {
+  const [slug, sequence] = LOG_SEQUENCE[stage]
+  return `${runDir}/log/${sequence}_${LOG_PURPOSE[stage]}_${slug}.md`
+}
+
+function taskLogContract(stage) {
+  return [
+    'BEFORE you start, record the time:',
+    '  date -u +%Y-%m-%dT%H:%M:%SZ',
+    '',
+    'AFTER you finish, take the time again and write your task log to',
+    `${logPath(stage)} — exactly this shape, and nothing else in that file:`,
+    '',
+    '  ---',
+    `  purpose: ${LOG_PURPOSE[stage]}`,
+    '  section: null',
+    '  round: 1',
+    `  label: "${stage}"`,
+    '  started_at: <the first timestamp>',
+    '  finished_at: <the second timestamp>',
+    '  status: ok | degraded | failed',
+    '  outputs: [<paths you wrote, relative to the run directory>]',
+    '  ---',
+    '',
+    '  ## Inputs',
+    '  - the sections and artifacts you actually read',
+    '',
+    '  ## Outputs',
+    '  - what you wrote, with word counts',
+    '',
+    '  ## Notes',
+    '  What you changed and why, what you deliberately left alone, and anything',
+    '  you could not resolve. Be specific and brief — this is the only account',
+    '  of your work that survives.',
+    '',
+    'Write the log even when the work failed. A failed stage with no log is',
+    'indistinguishable from a stage that never ran.',
+  ].join('\n')
+}
+
+function preamble(role, stage) {
   return [
     `You are the ${role} for an equity research report on ${company} (${ticker}).`,
     '',
@@ -65,12 +122,14 @@ function preamble(role) {
     'discovered now has no bronze id, cannot be cited, and cannot survive',
     'assembly. Everything you need is in the sections and in the artifacts',
     `under ${workdir}.`,
+    '',
+    taskLogContract(stage),
   ].join('\n')
 }
 
-function fill(promptFile, role, placeholders) {
+function fill(promptFile, role, stage, placeholders) {
   const lines = [
-    preamble(role),
+    preamble(role, stage),
     '',
     `Follow prompts/polish/${promptFile} exactly. Read it first.`,
     '',
@@ -86,6 +145,7 @@ function fill(promptFile, role, placeholders) {
     `  {verdict_path} = ${verdictPath}`,
     `  {critique_path} = ${critiquePath}`,
     `  {evaluation_path} = ${evaluationPath}`,
+    `  {log_path} = ${logPath(stage)}`,
   ]
   for (const key of Object.keys(placeholders)) {
     lines.push(`  {${key}} = ${placeholders[key]}`)
@@ -136,25 +196,26 @@ log(`polish chain: ${sections.length} sections in reports/${report_date}`
 
 phase('Cross-check')
 const crossCheck = runs('cross_section') ? await agent(
-  fill('cross_section.md', 'CONSISTENCY EDITOR', {}),
+  fill('cross_section.md', 'CONSISTENCY EDITOR', 'cross_section', {}),
   { label: 'cross-check', agentType: 'sra-writer' },
 ) : null
 
 phase('Conclusion')
 const verdict = runs('conclusion') ? await agent(
-  fill('conclusion.md', 'CONCLUSION WRITER', { word_target: conclusionWords }),
+  fill('conclusion.md', 'CONCLUSION WRITER', 'conclusion',
+       { word_target: conclusionWords }),
   { label: 'conclusion', agentType: 'sra-writer', schema: VERDICT_SCHEMA },
 ) : null
 
 phase('Critique')
 const critique = runs('critique') ? await agent(
-  fill('critique.md', 'WHOLE-REPORT CRITIC', {}),
+  fill('critique.md', 'WHOLE-REPORT CRITIC', 'critique', {}),
   { label: 'critique', agentType: 'sra-writer' },
 ) : null
 
 phase('Polish')
 const polish = runs('polish') ? await agent(
-  fill('polish.md', 'POLISH EDITOR', {}),
+  fill('polish.md', 'POLISH EDITOR', 'polish', {}),
   { label: 'polish', agentType: 'sra-writer', schema: POLISH_SCHEMA },
 ) : null
 
@@ -166,7 +227,7 @@ if (polish && polish.shrink_gate_passed === false) {
 
 phase('Evaluate')
 const evaluation = runs('evaluate') ? await agent(
-  fill('evaluate.md', 'INDEPENDENT ASSESSOR', {}),
+  fill('evaluate.md', 'INDEPENDENT ASSESSOR', 'evaluate', {}),
   { label: 'evaluate', agentType: 'sra-writer', schema: EVALUATION_SCHEMA },
 ) : null
 

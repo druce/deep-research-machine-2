@@ -96,12 +96,18 @@ It prints `{run, markdown, html, pdf, citations, exhibits, render_errors}`.
 
 ```bash
 uv run python sra.py validate <TICKER>
+uv run python sra.py run-log <TICKER> --run <RUN>
 uv run python sra.py snapshot <TICKER>
 ```
 
 `validate` is fatal and has no `--force` (§8.4). Do not snapshot over a failing
 gate: the snapshot is what `reports/latest` points at and what the next run is
 diffed against.
+
+`run-log` goes **before** `snapshot`: `run_log.md` is a snapshot deliverable
+(§15.3), so assembling it afterwards would stamp a run whose own audit trail is
+missing from its manifest. It is deterministic and takes no lock, so re-running
+it is always safe.
 
 `snapshot` stamps the run, repoints `reports/latest`, clears the consumed
 `sections_dirty` list and appends a wiki-log entry. A second run on the same day

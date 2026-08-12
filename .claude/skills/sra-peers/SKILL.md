@@ -97,6 +97,15 @@ cites each peer's own bronze evidence, and `peers_selected.json` records only
    > ```
    >
    > `data` holds exactly 5 entries, ranks 1–5, best first.
+   >
+   > Then write ONE task log (§23.4) to
+   > `<abs run dir>/log/<NN>_rater_peers.md`, with frontmatter
+   > `purpose: rater`, `section: null`, `round: 1`, `label: "rater:peers"`,
+   > `status`, `outputs`, and body headings `## Inputs`, `## Outputs`,
+   > `## Notes`. Leave `started_at` and `finished_at` EMPTY — you have no Bash
+   > and cannot read the clock; the run log sorts you by file time instead. In
+   > `## Notes`, name the candidates you rejected and what decided it: the
+   > ranking records only the five that survived.
 
 4. **Select (Bash):**
    ```bash
@@ -111,7 +120,9 @@ cites each peer's own bronze evidence, and `peers_selected.json` records only
 
 5. **Bookkeeping (Bash):**
    ```bash
-   uv run python sra.py wiki-log <TICKER> --entry "peers: selected <A,B,C,D,E> from <N> candidates"
+   uv run python sra.py wiki-log <TICKER> \
+       --entry "peers: selected <A,B,C,D,E> from <N> candidates" \
+       --agents 1 --tokens <T> --minutes <M> --run <RUN>
    ```
 
 6. **Report** the selected five with their rationale, and name the runners-up so

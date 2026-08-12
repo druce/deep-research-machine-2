@@ -44,6 +44,10 @@ uv run python sra.py grep <TICKER> "<terms>"    # ranked hits, with ids
 uv run python sra.py show <TICKER> <id>         # one artifact in full
 ```
 
+`show` does not truncate; the harness's ~34KB cap on command output does, and a
+10-K or 10-Q will hit it. Take the path from `manifest` and Read the file
+directly instead — that is a tool limit, not a missing source.
+
 ## Numbers
 
 Forward-looking or non-historical numbers carry exactly one status tag —
@@ -60,6 +64,18 @@ Ledger and wiki bookkeeping goes through `sra.py` — `mark-answered`,
 by editing `research/questions.json`, `wiki/00_index.md` or `wiki/log.md`
 directly. Those files are driver-maintained, and a hand edit is silently lost the
 next time the driver rewrites them.
+
+## Your task log
+
+Your own log is the exception, and it is required. When a prompt gives you a
+`{log_path}`, write exactly one file there describing what you did — the shape
+is in the prompt (§23.4). That file is yours alone: nothing else writes it, so
+there is nothing to contend with.
+
+Write it even when the work failed. `sra.py run-log` assembles these into the
+run's audit log, and a failed stage with no log is indistinguishable from a
+stage that never ran. Token counts are not yours to record — you cannot see
+them, and the driver joins them in from `run_stats.json` afterwards.
 
 `mark-answered --sources` takes bronze ids only. Pass the answer id to
 `--artifacts` if you want the audit trail; it is never evidence.

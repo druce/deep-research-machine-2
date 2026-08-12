@@ -155,15 +155,12 @@ def test_absent_chart_degrades_to_a_note():
     assert "*Stock chart not available*" in md
 
 
-def test_chartbook_appendix_numbers_its_exhibits():
+def test_the_template_renders_no_chartbook_appendix():
+    """The gallery repeated every exhibit at full size — a verbatim second copy
+    of what the body already shows beside the argument it supports."""
     md = render_markdown(_variables())
-    assert "## Chartbook" in md
-    assert "Exhibit 1 — Revenue growth by segment" in md
-
-
-def test_empty_chartbook_drops_the_appendix():
-    md = render_markdown(_variables(chartbook=[]))
     assert "## Chartbook" not in md
+    assert 'href="#chartbook"' not in md
 
 
 def test_references_section_is_included():

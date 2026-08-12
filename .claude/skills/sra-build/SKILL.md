@@ -36,12 +36,40 @@ once, in one message:
 Record the answer and move on. Do not block on it: "you choose" is a complete
 answer, and `/sra-peers` handles both paths.
 
-## Steps 1–2 — Initialize and gather
+## Steps 1–2 — Initialize, open the run, gather
 
 ```bash
 uv run python sra.py init <TICKER>
 uv run python sra.py status <TICKER>
 ```
+
+Open the run directory **before anything dispatches**. Every agent from here on
+writes its own task log into `reports/<RUN>/log/` (§23.4), and an agent with
+nowhere to log leaves a hole in the run log that cannot be filled later — the
+information existed only in that agent's context.
+
+```bash
+uv run python - <<'PY'
+from datetime import datetime, timezone
+from pathlib import Path
+from lib.render.runs import current_run
+from lib.run_stats import start_run, write_run_stats
+
+d = Path("data/<TICKER>")
+run = current_run(d, datetime.now(timezone.utc).date())
+(run / "log").mkdir(parents=True, exist_ok=True)
+write_run_stats(run, start_run(datetime.now(timezone.utc).isoformat()))
+print(run)
+PY
+```
+
+Use that directory as `<RUN>` for the rest of the build. `current_run` returns
+the newest `reports/<date>/` with **no `snapshot.json`** in it, or today's date
+if there is none: a stamped run is immutable, so a second build on the same day
+gets `<date>_2` rather than writing into yesterday's report.
+
+**Resume:** a run whose `run_stats.json` already has a `started_at` is the run in
+progress — keep it, and do not restamp.
 
 `status` is the resume oracle for this phase. If nothing is stale and
 `sources/` already holds documents, the gather is done — skip to step 3.
@@ -89,8 +117,13 @@ count is below the round's stopping threshold. Check with
 ## Steps 8–10 — Lint and gate again
 
 ```bash
+uv run python sra.py wiki-index <TICKER>
 uv run python sra.py wiki-lint <TICKER>
 ```
+
+`wiki-index` first: the lint checks that every page is listed in it, and any
+page edited outside `/sra-research` leaves the index describing the previous
+version.
 
 Then invoke `/sra-lint TICKER`, which is the model-judgment half and runs only
 after the deterministic pass (§22.1). Its findings become ledger questions with
@@ -100,7 +133,12 @@ If the lint raises questions that would change a section's argument, run one
 more `/sra-research TICKER <section>` round before writing. If it raises only
 `partial` citations, note them and continue — writing will not make them worse.
 
+`missing-summary` warnings are worth clearing before you write: the wiki index
+is what the chartbook and lint agents read to find their way around, and a page
+with no `summary:` shows up there as whatever its prose happened to open with.
+
 ```bash
+uv run python sra.py wiki-index <TICKER>   # again, if the lint pass edited pages
 uv run python sra.py validate <TICKER>
 ```
 
@@ -120,8 +158,13 @@ script, not a shell command) with args:
 }
 ```
 
-The run directory is the newest `reports/<date>/` with **no `snapshot.json`** in
-it, or today's date if there is none. A stamped run is immutable.
+`report_date` is the `<RUN>` opened at step 1. A stamped run is immutable.
+
+The seven sections run as seven independent chains launched together, ordered
+longest-first, each grouped in the progress display under its own section title.
+Six run at once and one queues — the workflow concurrency cap is
+`min(16, cores - 2)` and has no setting (§23.1). Do not try to raise it, and do
+not split the wave into two Workflow calls to get around it.
 
 **Resume:** skip sections whose draft already exists and passes its hard checks.
 
@@ -154,6 +197,24 @@ which is the point. Where a phase reports one total for several agents rather
 than per-agent counts, apportion it and pass `estimated=True` so the record says
 which figures were measured.
 
+**Use the real numbers where they exist.** Every Agent-tool dispatch returns
+`subagent_tokens` and `duration_ms` in its task result. Use them — guessing is
+what made every entry of the last PANW run `estimated`.
+
+But `subagent_tokens` is a **combined** total, not an input/output split, and
+`record_subagent` wants both. So split it at the observed ratio for that agent
+type (deep research and answerers run about 92% input / 8% output; writers
+nearer 90/10) and pass `estimated=True`. The TOTAL is measured and the split is
+apportioned — that is exactly the distinction the flag records, and claiming a
+measured split would be worse than admitting an apportioned one.
+
+`duration_ms` is exact; it needs no flag. Workflow agents return no usage at
+all, so those are apportioned end to end.
+
+`section` and `round` are not decoration: they are the key the run log joins
+task logs on. An entry recorded without them cannot be matched to the agent that
+wrote the log, and shows up under "Unattributed".
+
 At the end of the build, stamp the finish and check the budgets:
 
 ```bash
@@ -171,6 +232,20 @@ print(json.dumps({"totals": stats["totals"],
 PY
 ```
 
+Then assemble the audit log and close the journal:
+
+```bash
+uv run python sra.py run-log <TICKER> --run <RUN>
+uv run python sra.py wiki-log <TICKER> \
+    --entry "build: <n> sources, 7 sections, <k> exhibits, <rating>" \
+    --agents <N> --tokens <T> --minutes <M> --run <RUN>
+```
+
+`run-log` runs **after** `finish_run`, so the log carries the wall clock and any
+budget violation. Read its "Unattributed" section before you report: agents
+listed there either wrote no task log or were recorded without a matching
+`section`/`round`, and both are accounting defects worth naming.
+
 ## Report
 
 Open with the verdict — rating, fair value, implied return — because that is
@@ -180,9 +255,9 @@ what the user asked for, then:
   citations resolved;
 - what degraded: stale or failed kinds, sections whose wiki page was thin,
   questions left open or deferred;
-- the run against §23.3's ceilings (80 subagents, 6M tokens, 60 minutes) and any
+- the run against §23.3's ceilings (100 subagents, 6M tokens, 60 minutes) and any
   `check_budgets` violation, verbatim;
-- the snapshot name and where the PDF is.
+- the snapshot name, where the PDF is, and the path to `run_log.md`.
 
 If any phase was skipped by resume, say which — a reader has to know whether
 this run researched anything or just re-assembled yesterday's evidence.

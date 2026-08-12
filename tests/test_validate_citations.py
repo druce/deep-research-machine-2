@@ -263,3 +263,67 @@ def test_derivation_may_point_at_silver(tmp_ticker_dir: Path):
     write_derived(tmp_ticker_dir, _model_meta("peers_ranked", ["peers_candidates"]),
                   {"peers": []}, namespace="peers")
     assert _run(tmp_ticker_dir) == []
+
+
+def test_built_from_may_name_a_macro_artifact(tmp_path: Path):
+    """§8.4 check 4 resolves a citation into `_MACRO`, and `built_from` is by
+    definition the set of references the page cites — so a shorter reach here
+    makes the same id legal in prose and fatal in frontmatter.
+
+    The SPCX valuation page hit exactly that: it cited the FRED risk-free rate
+    for its WACC, recorded it in `built_from`, and failed the build for it.
+    """
+    root = tmp_path / "data"
+    ticker = root / "SPCX"
+    (ticker / "wiki").mkdir(parents=True)
+    (ticker / "sources").mkdir()
+    (ticker / "structured").mkdir()
+    macro = root / "_MACRO" / "structured"
+    macro.mkdir(parents=True)
+    (macro / "fred_dgs10.json").write_text(json.dumps({
+        "_meta": {"id": "fred_dgs10", "ticker": "_MACRO", "producer": "fetch",
+                  "kind": "macro_series", "source": "FRED",
+                  "url": "https://fred.stlouisfed.org/series/DGS10",
+                  "fetched_at": "2026-08-11T00:00:00+00:00",
+                  "as_of": "2026-08-11", "title": "10Y Treasury",
+                  "fetch_tool": "lib/fetchers/fred.py",
+                  "fetch_cmd": "uv run python sra.py prefetch-macro"},
+        "data": {"observations": []},
+    }), encoding="utf-8")
+    (ticker / "wiki" / "valuation.md").write_text(
+        "---\nsection: valuation\nbuilt_from:\n"
+        "  - id: fred_dgs10\n    fetched_at: '2026-08-11T00:00:00+00:00'\n"
+        "open_questions: []\n---\n\nWACC uses the 10Y.\n", encoding="utf-8")
+
+    codes = {f.code for f in validate(ticker, data_root=root)}
+    assert "derivation-unresolved" not in codes
+
+
+def test_a_critique_is_not_held_to_the_citation_contract(tmp_path: Path):
+    """A `<section>.critique.md` is the write wave's working note ABOUT a draft
+    (§15.1). It never reaches the report, and its author writes shorthand like
+    `[^10q]` when quoting the draft's citations back at it.
+
+    The SPCX build failed its gold gate on exactly that — three shorthand ids in
+    one critic's prose — while every real draft was clean. Failing a fatal gate
+    on a scratch artifact is how a gate stops being trusted.
+    """
+    root = tmp_path / "data"
+    ticker = root / "SPCX"
+    drafts = ticker / "reports" / "2026-08-12" / "sections"
+    drafts.mkdir(parents=True)
+    (ticker / "wiki").mkdir()
+    (ticker / "sources").mkdir()
+    (ticker / "structured").mkdir()
+
+    (drafts / "profile.critique.md").write_text(
+        "The draft cites [^10q] and [^fool] without resolving them.\n",
+        encoding="utf-8")
+    codes = {f.code for f in validate(ticker, data_root=root)}
+    assert "citation-unresolved" not in codes
+
+    # ...but the draft itself is still held to it.
+    (drafts / "profile.md").write_text(
+        "## 1. Company Profile\n\nFounded in 2002.[^nope]\n", encoding="utf-8")
+    codes = {f.code for f in validate(ticker, data_root=root)}
+    assert "citation-unresolved" in codes

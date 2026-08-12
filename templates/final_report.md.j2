@@ -70,9 +70,6 @@
     <li><span class="toc-n">{{ loop.index }}.</span><a href="#{{ entry.anchor }}">{{ entry.title }}</a></li>
 {%- endfor %}
     <li><a href="#conclusion-investment-thesis">Conclusion &amp; Investment Thesis</a></li>
-{%- if chartbook %}
-    <li><a href="#chartbook">Chartbook</a></li>
-{%- endif %}
     <li><a href="#references">References</a></li>
     <li><a href="#sources-and-methodology">Sources and Methodology</a></li>
   </ol>
@@ -225,24 +222,6 @@ sell-side consensus. See the Conclusion for the reasoning and the tests that wou
 <div style="page-break-after: always;"></div>
 
 {{ conclusion }}
-
-{% if chartbook %}
-
----
-
-<div style="page-break-after: always;"></div>
-
-## Chartbook
-
-{% for exhibit in chartbook %}
-::: {.figure}
-![]({{ exhibit.path }})
-
-<span class="caption">Exhibit {{ loop.index }} — {{ exhibit.caption }}</span>
-:::
-
-{% endfor %}
-{% endif %}
 
 ---
 

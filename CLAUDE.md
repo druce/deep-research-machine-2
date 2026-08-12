@@ -12,7 +12,8 @@ status (what actually exists today) lives in `docs/superpowers/plans/`, not here
   - **silver** (never citable): `derived/` (+`answers/` researcher answers, `peers/`
     peer-selection working set and audit trail — durable, not disposable scratch); `wiki/` —
     synthesized research knowledge
-  - **gold**: `charts/` (+`candidates/`); `reports/<run>/` (+`reports/latest -> <run>/`)
+  - **gold**: `charts/` (+`candidates/`); `reports/<run>/` (+`reports/latest -> <run>/`,
+    `log/` one markdown log per agent, `run_log.md` the assembled audit log)
   - plus `research/questions.json` (the question ledger, §14) and `.state.json`
 - `sra.py` — deterministic driver CLI (init/status/prefetch/...). All deterministic work goes
   here, never into skills.
@@ -37,8 +38,9 @@ status (what actually exists today) lives in `docs/superpowers/plans/`, not here
 | `validate T` / `wiki-lint T` | fatal gate / advisory silver checks |
 | `questions T [...]` / `add-questions T ...` / `mark-answered T ...` / `invalidate T [--apply]` | research ledger |
 | `record-attempt T --question-hash H` / `drop-question T --question-hash H` | ledger transitions §19 omits — see below |
-| `wiki-log T --entry E` / `wiki-index T` / `mark-dirty T --section S` | wiki bookkeeping |
+| `wiki-log T --entry E [--agents N --tokens N --minutes M --run R]` / `wiki-index T` / `mark-dirty T --section S` | wiki bookkeeping |
 | `charts T [--verdict]` / `assemble T` / `snapshot T` | report rendering |
+| `run-log T [--run R]` | assemble `reports/<run>/run_log.md` from per-agent task logs |
 
 `migrate` (spec §26) is intentionally not implemented — approved deviation, no legacy corpora
 are being imported.

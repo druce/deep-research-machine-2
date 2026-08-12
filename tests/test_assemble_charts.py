@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from lib.render.assemble import DASHBOARD_CHARTS, _body, load_chartbook
+from lib.validate import validate
 
 
 def _ticker_dir(tmp_path: Path, selections: list[dict]) -> Path:
@@ -62,3 +63,34 @@ def test_body_embeds_each_image_once(tmp_path: Path) -> None:
 
 def test_dashboard_charts_names_the_two_template_placed_charts() -> None:
     assert DASHBOARD_CHARTS == frozenset({"price_weekly", "income_sankey"})
+
+
+def _report_tree(tmp_path: Path, body: str) -> tuple[Path, Path]:
+    data_root = tmp_path / "data"
+    d = data_root / "TEST"
+    run = d / "reports" / "2026-08-12"
+    run.mkdir(parents=True)
+    (run / "report.md").write_text(body, encoding="utf-8")
+    (run / "citation_map.json").write_text("{}", encoding="utf-8")
+    return d, data_root
+
+
+def test_repeated_image_is_a_fatal_finding(tmp_path: Path) -> None:
+    d, data_root = _report_tree(tmp_path, (
+        "![](../../charts/candidates/income_sankey.png)\n\n"
+        "text\n\n"
+        "![](../../charts/candidates/income_sankey.png)\n"))
+
+    findings = [f for f in validate(d, data_root) if f.code == "exhibit-duplicated"]
+
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+    assert "income_sankey.png" in findings[0].message
+
+
+def test_distinct_images_produce_no_finding(tmp_path: Path) -> None:
+    d, data_root = _report_tree(tmp_path, (
+        "![](../../charts/candidates/income_sankey.png)\n\n"
+        "![](../../charts/candidates/price_weekly.png)\n"))
+
+    assert [f for f in validate(d, data_root) if f.code == "exhibit-duplicated"] == []

@@ -108,7 +108,7 @@ def resolve_run(ticker_dir: Path, run: str | None, today: date) -> Path:
 # absence is visible in the record rather than asserted away.
 DELIVERABLES = ("report.md", "report.html", "report.pdf", "references.md",
                 "citation_map.json", "verdict.json", "evaluation.json",
-                "run_stats.json")
+                "run_stats.json", "run_log.md")
 
 
 def write_snapshot(run_dir: Path, now: datetime, *,

@@ -168,10 +168,14 @@ def test_update_states_the_incremental_ceilings():
     assert "max_subagents=8" in text and "max_minutes=30" in text
 
 
-def test_update_explains_that_eight_is_a_width_not_a_question_cap():
+def test_update_distinguishes_the_spend_ceiling_from_the_wave_width():
+    """They were one constant, so widening a wave would have silently doubled
+    what §23.2 allows an incremental run to cost. The skill has to name which
+    of the two its 8 is."""
     text = flat(UPDATE)
+    assert "MAX_INCREMENTAL_SUBAGENTS" in text
     assert "MAX_PARALLEL_AGENTS" in text
-    assert "concurrency width, not a question cap" in text
+    assert "SPEND limit" in text
 
 
 def test_directed_instructions_come_from_the_shell_not_from_prose_splitting():
@@ -204,7 +208,7 @@ def test_update_directs_one_research_round_not_three():
 def test_update_ceilings_match_the_constants_they_name():
     """A skill quoting a number the code no longer holds is worse than one
     quoting none — it reads as authoritative."""
-    from lib.research import MAX_PARALLEL_AGENTS
+    from lib.research import MAX_INCREMENTAL_SUBAGENTS
 
-    assert f"≤{MAX_PARALLEL_AGENTS} model subagents" in body(UPDATE)
-    assert f"max_subagents={MAX_PARALLEL_AGENTS}" in body(UPDATE)
+    assert f"≤{MAX_INCREMENTAL_SUBAGENTS} model subagents" in body(UPDATE)
+    assert f"max_subagents={MAX_INCREMENTAL_SUBAGENTS}" in body(UPDATE)

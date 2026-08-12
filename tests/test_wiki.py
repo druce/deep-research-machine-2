@@ -8,8 +8,11 @@ from pathlib import Path
 import pytest
 
 import sra
+from lib.sections import SECTION_IDS, load_sections
 from lib.statefile import load_state
-from lib.wiki import append_log, page_path, read_page, update_index, write_page
+from lib.wiki import (
+    append_log, mark_page_dirty, page_path, read_page, update_index, write_page,
+)
 
 NOW = datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)
 
@@ -67,11 +70,90 @@ def test_write_page_creates_nested_entity_pages(tmp_ticker_dir: Path):
 
 # --- index ----------------------------------------------------------------
 
-def test_update_index_lists_pages(tmp_ticker_dir: Path):
+def test_update_index_links_every_page(tmp_ticker_dir: Path):
+    """§14.2: the index is the wiki's navigation page. A page name that is not
+    a link is a name the reader has to go and find."""
     write_page(tmp_ticker_dir, "competitive", {}, "PANW competes with CRWD.", now=NOW)
     text = update_index(tmp_ticker_dir).read_text(encoding="utf-8")
-    assert "competitive" in text
-    assert "PANW competes with CRWD." in text
+    assert "](competitive.md)" in text
+
+
+def test_update_index_prefers_a_declared_summary(tmp_ticker_dir: Path):
+    write_page(tmp_ticker_dir, "competitive",
+               {"summary": "Share is shifting to CRWD in endpoint."},
+               "Scope: Porter's five forces. Persona: strategy consultant.",
+               now=NOW)
+    text = update_index(tmp_ticker_dir).read_text(encoding="utf-8")
+    assert "Share is shifting to CRWD in endpoint." in text
+    assert "Porter" not in text
+
+
+def test_update_index_skips_scope_preamble_when_deriving_a_summary(
+        tmp_ticker_dir: Path):
+    """Every page opens by restating its own assignment. An index of
+    assignments is no map at all."""
+    write_page(tmp_ticker_dir, "supply_chain", {},
+               "**One-line frame.** PANW owns none of its physical supply "
+               "chain and buys from a single EMS partner.", now=NOW)
+    text = update_index(tmp_ticker_dir).read_text(encoding="utf-8")
+    assert "PANW owns none of its physical supply chain" in text
+    assert "One-line frame" not in text
+
+
+def test_update_index_shows_nothing_rather_than_a_fragment(tmp_ticker_dir: Path):
+    """A wrong summary is worse than none: it makes the index look maintained
+    while misdescribing the page."""
+    write_page(tmp_ticker_dir, "competitive", {}, "1.", now=NOW)
+    text = update_index(tmp_ticker_dir).read_text(encoding="utf-8")
+    assert "| 1. |" not in text
+
+
+def test_update_index_orders_sections_by_report_order(tmp_ticker_dir: Path):
+    for page in ("valuation", "profile", "competitive"):
+        write_page(tmp_ticker_dir, page, {}, f"Notes on {page}.", now=NOW)
+    text = update_index(tmp_ticker_dir).read_text(encoding="utf-8")
+    assert text.index("profile.md") < text.index("competitive.md") \
+        < text.index("valuation.md")
+
+
+def test_update_index_names_sections_that_were_never_written(
+        tmp_ticker_dir: Path):
+    """The most important thing the table can say. The old index listed only
+    the files it found, so a section nobody researched was invisible."""
+    write_page(tmp_ticker_dir, "profile", {}, "Founded in 2005.", now=NOW)
+    text = update_index(tmp_ticker_dir).read_text(encoding="utf-8")
+    assert "not written" in text
+    assert text.count("not written") == len(SECTION_IDS) - 1
+
+
+def test_update_index_uses_section_titles_when_given_the_config(
+        tmp_ticker_dir: Path):
+    write_page(tmp_ticker_dir, "risk_news", {}, "Litigation is pending.", now=NOW)
+    text = update_index(tmp_ticker_dir, load_sections()).read_text(encoding="utf-8")
+    assert "[Risks](risk_news.md)" in text
+
+
+def test_update_index_flags_a_dirty_page(tmp_ticker_dir: Path):
+    write_page(tmp_ticker_dir, "competitive", {}, "Notes.", now=NOW)
+    mark_page_dirty(tmp_ticker_dir, "competitive")
+    text = update_index(tmp_ticker_dir).read_text(encoding="utf-8")
+    assert "dirty" in text
+
+
+def test_update_index_rolls_up_open_questions(tmp_ticker_dir: Path):
+    write_page(tmp_ticker_dir, "valuation",
+               {"open_questions": ["What is the terminal growth rate?"]},
+               "Notes.", now=NOW)
+    text = update_index(tmp_ticker_dir).read_text(encoding="utf-8")
+    assert "## Open questions" in text
+    assert "What is the terminal growth rate?" in text
+
+
+def test_update_index_omits_the_rollup_when_nothing_is_open(
+        tmp_ticker_dir: Path):
+    write_page(tmp_ticker_dir, "valuation", {}, "Notes.", now=NOW)
+    text = update_index(tmp_ticker_dir).read_text(encoding="utf-8")
+    assert "## Open questions" not in text
 
 
 def test_update_index_excludes_its_own_bookkeeping(tmp_ticker_dir: Path):
@@ -79,8 +161,9 @@ def test_update_index_excludes_its_own_bookkeeping(tmp_ticker_dir: Path):
     append_log(tmp_ticker_dir, "did a thing", now=NOW)
     update_index(tmp_ticker_dir)
     text = update_index(tmp_ticker_dir).read_text(encoding="utf-8")
-    assert "| 00_index |" not in text
-    assert "| log |" not in text
+    assert "00_index.md)" not in text
+    assert "](log.md)" in text          # linked as the journal, not listed as a page
+    assert "| [log]" not in text
 
 
 def test_update_index_is_idempotent(tmp_ticker_dir: Path):
@@ -112,6 +195,38 @@ def test_append_log_timestamps_each_entry(tmp_ticker_dir: Path):
     append_log(tmp_ticker_dir, "did a thing", now=NOW)
     assert "2026-07-30T12:00:00" in (
         tmp_ticker_dir / "wiki" / "log.md").read_text(encoding="utf-8")
+
+
+def test_append_log_without_cost_flags_is_unchanged(tmp_ticker_dir: Path):
+    """Six skills call this. Adding the fields must not rewrite what they
+    already emit."""
+    append_log(tmp_ticker_dir, "lint: 40 findings", now=NOW)
+    text = (tmp_ticker_dir / "wiki" / "log.md").read_text(encoding="utf-8")
+    assert text == "- 2026-07-30T12:00:00+00:00 lint: 40 findings\n"
+
+
+def test_append_log_records_what_the_phase_cost(tmp_ticker_dir: Path):
+    append_log(tmp_ticker_dir, "lint: 40 findings", now=NOW,
+               agents=6, tokens=412_000, minutes=8.4)
+    text = (tmp_ticker_dir / "wiki" / "log.md").read_text(encoding="utf-8")
+    assert "6 agents · 412k tok · 8.4 min" in text
+
+
+def test_append_log_links_the_run_log_when_given_a_run(tmp_ticker_dir: Path):
+    append_log(tmp_ticker_dir, "write wave", now=NOW, agents=21,
+               run="2026-08-11")
+    text = (tmp_ticker_dir / "wiki" / "log.md").read_text(encoding="utf-8")
+    assert "(../reports/2026-08-11/run_log.md)" in text
+
+
+def test_append_log_stays_one_entry_per_call(tmp_ticker_dir: Path):
+    """§23.4 keeps this a phase journal, not an audit log — the cost line is
+    part of the same entry, not a second one."""
+    append_log(tmp_ticker_dir, "first", now=NOW, agents=2)
+    append_log(tmp_ticker_dir, "second", now=NOW)
+    text = (tmp_ticker_dir / "wiki" / "log.md").read_text(encoding="utf-8")
+    assert text.count("\n- ") == 1      # two entries, one leading "- "
+    assert text.startswith("- ")
 
 
 def test_append_log_creates_the_file(tmp_ticker_dir: Path):

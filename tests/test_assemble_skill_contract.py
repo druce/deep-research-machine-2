@@ -74,7 +74,10 @@ def test_the_reduced_shape_the_skill_asks_for_is_one_the_chain_supports():
     """The skill tells the orchestrator to pass `stages`; a chain that ignored
     it would silently run all five and blow the incremental budget."""
     chain = POLISH_CHAIN.read_text(encoding="utf-8")
-    assert "args.stages" in chain
+    # `input` is `args` after the JSON-string normalization at the top of the
+    # script; what matters is that the subset is read, not which name it is
+    # read from.
+    assert "input.stages" in chain
     for stage in ("cross_section", "conclusion", "critique", "polish", "evaluate"):
         assert f"'{stage}'" in chain, stage
     assert 'stages: ["cross_section", "conclusion"]' in skill_body()

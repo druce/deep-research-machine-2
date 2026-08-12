@@ -55,6 +55,15 @@ or MCP — and this prompt:
 > Read the wiki, open the sources you check, and write the findings file in
 > exactly the shape the prompt specifies. Do not edit any wiki page and do not
 > add questions — the driver owns the ledger.
+>
+> Your task log (§23.4): stamp `date -u +%Y-%m-%dT%H:%M:%SZ` before you start
+> and again when you finish, then write ONE log to
+> `<abs run dir>/log/<NN>_lint_judgment.md` with frontmatter `purpose: lint`,
+> `section: null`, `round: 1`, `label: "lint:judgment"`, `started_at`,
+> `finished_at`, `status`, `outputs`, and body headings `## Inputs`,
+> `## Commands`, `## Outputs`, `## Notes`. In `## Notes`, say which citations
+> you actually opened and which you took on trust — that is the one thing the
+> findings file cannot record. Write the log even if the judgment failed.
 
 `derived/lint_findings.json` is silver working state (§4.2): durable, never
 citable, and safe to overwrite on the next lint.
@@ -80,7 +89,10 @@ never refused for volume — a large open set is a backlog signal, not an error.
 ## Step 4 — Bookkeeping (Bash)
 
 ```bash
-uv run python sra.py wiki-log <TICKER> --entry "lint: <c> citations and <t> tensions checked, <n> findings, <q> questions raised"
+uv run python sra.py wiki-index <TICKER>   # the lint pass edits pages; the index must follow
+uv run python sra.py wiki-log <TICKER> \
+    --entry "lint: <c> citations and <t> tensions checked, <n> findings, <q> questions raised" \
+    --agents <N> --tokens <T> --minutes <M> --run <RUN>
 ```
 
 ## Report

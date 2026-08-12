@@ -26,6 +26,7 @@ from lib.fetchers.urls import (
     FetchRejected,
     check_url_allowed,
     fetch_url_to_markdown,
+    html_to_markdown,
 )
 
 PUBLIC_IP = "93.184.216.34"  # example.com
@@ -386,3 +387,57 @@ def test_transport_failure_is_a_clean_error_not_an_exception():
         "http://example.com/x", client=client_serving(handler), resolver=public_resolver)
     assert (ok, data) == (False, None)
     assert "transport_error" in err
+
+
+# --- declared identity ------------------------------------------------------
+
+def test_every_fetch_declares_an_identity():
+    """httpx defaults to `python-httpx/<version>`, which sec.gov refuses under
+    its fair-access policy. Every sec.gov URL a researcher cited came back 403
+    and mapped to `null`, which makes the claim resting on it uncitable — the
+    SPCX build lost its whole S-1 that way."""
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(request.headers)
+        return httpx.Response(200, headers={"content-type": "text/html"},
+                              text="<html><body><p>ok</p></body></html>")
+
+    ok, _data, _err = fetch_url_to_markdown(
+        "http://example.com/a", client=client_serving(handler),
+        resolver=public_resolver)
+    assert ok
+    assert "python-httpx" not in seen.get("user-agent", "")
+    assert seen.get("user-agent")
+
+
+def test_the_identity_is_the_one_edgar_uses(monkeypatch):
+    """One `.env` pair configures both retrieval paths, so an operator cannot
+    fix EDGAR access and still be silently blocked on URL harvest."""
+    from lib.fetchers.urls import request_headers
+
+    monkeypatch.setenv("SEC_FIRM", "Acme Research")
+    monkeypatch.setenv("SEC_USER", "analyst@acme.example")
+    assert request_headers()["User-Agent"] == "Acme Research analyst@acme.example"
+
+
+def test_xhtml_with_an_xml_declaration_is_extracted_not_stored_raw():
+    """lxml refuses a str carrying an XML encoding declaration, and every modern
+    SEC inline-XBRL filing is XHTML that opens with one.
+
+    The ValueError landed in the "raw text is better than nothing" fallback, so
+    LMT's and NOC's 10-Qs were stored as 200KB of raw Workiva markup — useless
+    as evidence, and tripping the secret scanner on the document GUIDs in their
+    HTML comments.
+    """
+    xhtml = (
+        "<?xml version='1.0' encoding='ASCII'?>"
+        "<!--r:019e22f4-bbca-7447-87ab-a06dc5bf3413-->"
+        "<html xmlns='http://www.w3.org/1999/xhtml'><head><title>10-Q</title></head>"
+        "<body><p>Net sales were $18,155 million.</p></body></html>"
+    )
+    markdown, title = html_to_markdown(xhtml)
+    assert "Net sales were $18,155 million." in markdown
+    assert "<html" not in markdown
+    assert "019e22f4" not in markdown          # comment stripped, not stored
+    assert title == "10-Q"

@@ -139,8 +139,22 @@ placeholder:
 > Write your answer with `write_answer`, exactly as your agent instructions
 > describe, using this id: `<TODAY>_research_answer_r<R>-<batch-slug>`
 >
+> Your task log (§23.4): stamp `date -u +%Y-%m-%dT%H:%M:%SZ` before you start
+> and again when you finish, then write ONE log to
+> `{log_path} = <abs run dir>/log/<NN>_answerer_<batch-slug>.md` with
+> frontmatter `purpose: answerer`, `section: <SECTION>`, `round: <R>`,
+> `label: "answerer:<batch-slug>"`, `started_at`, `finished_at`,
+> `status: ok|degraded|failed`, `outputs: [...]`, and body headings
+> `## Inputs`, `## Fetches` (URL, outcome, bronze id), `## Outputs`, `## Notes`.
+> Write it even if the batch failed. Do not record token counts.
+>
 > Return the answer path, 2-3 sentences per question (or `[GAP]` and what you
 > tried), and at most three candidate follow-up questions.
+
+Number the log files across the whole round so two batches never collide, and
+pass each batch its own `<NN>`. Record each answerer's `subagent_tokens` and
+`duration_ms` from the task result into `run_stats.json` with the SAME `section`
+and `round` you put in its log — that pair is the key the run log joins on.
 
 The batch slug is 2-4 hyphenated words naming the batch's shared sub-topic. Keep
 a record of which hashes went to which batch — Step 2c needs it.
@@ -199,9 +213,14 @@ that got new answers, all in one message:
 >    them away.
 > 6. End the body with `## Open questions` — the structural gaps the evidence
 >    genuinely does not close.
-> 7. Frontmatter: `section`, `updated_at` (UTC ISO), `built_from` (the COMPLETE
->    list of stamped references the page now cites, `{id, fetched_at}` per
->    entry, union of old and new), `open_questions`.
+> 7. Frontmatter: `section`, `summary`, `updated_at` (UTC ISO), `built_from`
+>    (the COMPLETE list of stamped references the page now cites,
+>    `{id, fetched_at}` per entry, union of old and new), `open_questions`.
+>    `summary` is ONE sentence saying what this page establishes — the finding,
+>    not the assignment. "PANW owns none of its physical supply chain" is a
+>    summary; "Persona: supply-chain analyst" is the brief you were given. It is
+>    the row the wiki index shows, and nothing downstream can reconstruct it
+>    from prose that opens with scope and period conventions.
 > 8. Bookkeeping — through the driver only, from the repo root:
 >    - answered: `uv run python sra.py mark-answered <TICKER> --question-hash <H> --sources <bronze-id>[,<bronze-id>]`
 >      (bronze ids only; `--artifacts <answer-id>` records which answer produced
@@ -210,7 +229,13 @@ that got new answers, all in one message:
 >    - a question this round raised: `uv run python sra.py add-questions <TICKER> --section <SECTION> --question "..." --round <r+1> --origin synthesizer`
 >    Leave a question OPEN if its supporting fetches failed and no bronze
 >    remains. Silence never means dropped.
-> 9. Return: the questions you answered, dropped and added, and the list of NEW
+> 9. Your task log (§23.4): stamp the time before and after, then write ONE log
+>    to `<abs run dir>/log/<NN>_synthesizer_<SECTION>.md` with frontmatter
+>    `purpose: synthesizer`, `section: <SECTION>`, `round: <R>`,
+>    `label: "synthesizer:<SECTION>"`, `started_at`, `finished_at`, `status`,
+>    `outputs`, and body headings `## Inputs`, `## Commands`, `## Outputs`,
+>    `## Notes`. Write it even if the synthesis failed.
+> 10. Return: the questions you answered, dropped and added, and the list of NEW
 >    MATERIAL follow-up questions (max 6, deduped against the page). If nothing
 >    material remains, return `NO NEW QUESTIONS`.
 >
@@ -230,7 +255,9 @@ uv run python sra.py validate <TICKER>                      # fatal gate — mus
 uv run python sra.py wiki-lint <TICKER>                     # advisory
 uv run python sra.py mark-dirty <TICKER> --section <SECTION>
 uv run python sra.py wiki-index <TICKER>
-uv run python sra.py wiki-log <TICKER> --entry "research <SECTION>: <r> rounds, <n> answers, <m> open"
+uv run python sra.py wiki-log <TICKER> \
+    --entry "research <SECTION>: <r> rounds, <n> answers, <m> open" \
+    --agents <N> --tokens <T> --minutes <M> --run <RUN>
 ```
 
 `validate` exiting 1 on an unresolvable citation is the one hard stop here: send

@@ -40,7 +40,7 @@ PURPOSES: tuple[str, ...] = (
 
 # §23.3's cold-build ceilings. The token figure is the FAILURE threshold, not
 # the goal — §23.3 puts the target at 3M and names the structural levers.
-MAX_SUBAGENTS = 80
+MAX_SUBAGENTS = 100
 MAX_TOKENS = 6_000_000
 MAX_MINUTES = 60
 

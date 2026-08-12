@@ -91,6 +91,18 @@ prompt, the ticker directory, the repo root, and the answer id
 Step 4 for it. This is the same work with a smaller research budget, not a
 degraded mode to apologize for.
 
+**Task logs (§23.4).** The `deep-research` workflow is the harness's, not ours,
+so no contract can be injected into it — **you** write those seven logs, one per
+topic, from what the workflow returned:
+`reports/<RUN>/log/<NN>_deep-research_<topic>.md`, frontmatter
+`purpose: deep-research`, `section: <topic>`, `round: 0`,
+`label: "deep-research:<topic>"`, `started_at`/`finished_at` from before and
+after the call, `status`, `outputs`. Record the URLs the topic returned under
+`## Fetches` and which of them survived `fetch-urls` under `## Notes` — the
+URL harvest is where prefetch actually loses evidence, and nothing else records
+it. On the fallback path the `sra-researcher` agents write their own logs; give
+each its `{log_path}` and the same frontmatter.
+
 ## Step 4 — Write each Workflow result as an answer (Bash)
 
 A Workflow returns text to you, so you write the answer file — the researcher
@@ -132,7 +144,9 @@ and its URLs are what become evidence in the next step.
 uv run python sra.py fetch-urls <TICKER>
 uv run python sra.py manifest <TICKER>
 uv run python sra.py validate <TICKER>
-uv run python sra.py wiki-log <TICKER> --entry "prefetch: <n> kinds fetched, <k> degraded, 7 topics, <m> urls harvested"
+uv run python sra.py wiki-log <TICKER> \
+    --entry "prefetch: <n> kinds fetched, <k> degraded, 7 topics, <m> urls harvested" \
+    --agents 7 --tokens <T> --minutes <M> --run <RUN>
 ```
 
 `fetch-urls` runs the driver's hardened, SSRF-controlled fetcher over every

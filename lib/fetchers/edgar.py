@@ -19,7 +19,24 @@ DEPENDS_ON: tuple[str, ...] = ()
 # sra5 skills/config.py values, carried over with the extraction below.
 SEC_LOOKBACK_DAYS = 365
 SEC_10K_ITEMS = ["Item 1", "Item 1A", "Item 3", "Item 7", "Item 7A"]
-SEC_10Q_ITEMS = ["Item 2"]
+
+# PART-QUALIFIED, and both halves matter.
+#
+# A 10-Q reuses item numbers across its two parts — Item 1 is Financial
+# Statements in Part I and Legal Proceedings in Part II — so a bare "Item 1"
+# resolves to whichever edgartools finds first. Qualifying the key is what makes
+# both reachable.
+#
+# This was `["Item 2"]`: MD&A alone. Everything an analyst actually cites — the
+# statements, the notes, the risk factors, the legal proceedings — was silently
+# absent, while the MD&A text kept referring to "Note 9" and "Note 16 ...
+# included elsewhere in this Quarterly Report" that were never fetched. On the
+# SPCX build (a company two months public, so a 10-Q is its ONLY periodic
+# filing) Part I Item 1 is 93KB against MD&A's 66KB, and four separate agents
+# reported the concentration, termination and contingency disclosures as
+# unfillable gaps before one of them went around the pipeline to EDGAR directly.
+SEC_10Q_ITEMS = ["Part I Item 1", "Part I Item 2", "Part I Item 3",
+                 "Part II Item 1", "Part II Item 1A"]
 
 # Ids follow the contract naming (`<filing-date>_sec_10k`), not make_source_id --
 # which would yield `<date>_sec_filing_10k`. The canonical `sec_filing` kind still
@@ -28,7 +45,11 @@ FORM_NAMES = {"sec_10k": "10-K", "sec_10q": "10-Q"}
 ITEM_10K_LABELS = {"Item 1": "Business", "Item 1A": "Risk Factors",
                    "Item 3": "Legal Proceedings", "Item 7": "MD&A",
                    "Item 7A": "Market Risk Disclosures"}
-ITEM_10Q_LABELS = {"Item 2": "MD&A"}
+ITEM_10Q_LABELS = {"Part I Item 1": "Financial Statements and Notes",
+                   "Part I Item 2": "MD&A",
+                   "Part I Item 3": "Market Risk Disclosures",
+                   "Part II Item 1": "Legal Proceedings",
+                   "Part II Item 1A": "Risk Factors"}
 # Copy of _8K_ITEM_MAP from sra5 skills/fetch_edgar/filing_items.py.
 EIGHTK_ITEM_LABELS = {
     "Item 1.01": "Entry into a Material Definitive Agreement",

@@ -75,9 +75,14 @@ def manifest_rows(ticker_dir: Path) -> list[dict]:
     return rows
 
 
-def _cell(value: object) -> str:
+def cell(value: object) -> str:
     """Escape a value for a markdown table cell. A raw `|` would split the row
-    into phantom columns."""
+    into phantom columns.
+
+    Public because every generated table in the tree needs it — the source
+    manifest here, the wiki index, the run log — and a second copy of a
+    one-line escape is a second place for it to be forgotten.
+    """
     return str(value).replace("|", r"\|")
 
 
@@ -98,7 +103,7 @@ def build_manifest(ticker_dir: Path) -> Path:
     ]
     lines += [
         "| " + " | ".join(
-            _cell(r[k]) for k in ("id", "kind", "as_of", "bytes", "summary")
+            cell(r[k]) for k in ("id", "kind", "as_of", "bytes", "summary")
         ) + " |"
         for r in rows
     ]

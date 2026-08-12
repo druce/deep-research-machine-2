@@ -25,7 +25,9 @@ from pathlib import Path
 
 import frontmatter
 
+from lib.manifest import cell
 from lib.provenance import resolve_artifact
+from lib.run_log import RUN_LOG_NAME
 from lib.sections import SECTION_IDS
 from lib.validate import Finding
 
@@ -50,7 +52,13 @@ NUMERIC_CLAIM_RE = re.compile(
 # Forward-looking references (§22.1): fiscal years, quarters, and calendar
 # years from 2026 on.
 FORWARD_LOOKING_RE = re.compile(r"FY\d{2}|Q[1-4]\b|\b20(?:2[6-9]|3\d)\b")
-STATUS_TAG_RE = re.compile(r"\[(REPORTED|GUIDANCE|CONSENSUS|ESTIMATE)\]")
+# The qualifier is optional because §18's own worked example carries one:
+# "[CONSENSUS, yfinance, as of 2026-07-30]". Requiring the bare tag made the
+# check fire on prose written exactly as the spec instructs — two SPCX
+# synthesizers reported it, and one reworded correct prose to silence it, which
+# is the worst outcome an advisory check can produce.
+STATUS_TAG_RE = re.compile(
+    r"\[(REPORTED|GUIDANCE|CONSENSUS|ESTIMATE)\b[^\]]*\]")
 
 # A figure for duplicate detection: the number together with its unit, so "15.4%"
 # and "15.4x" are different facts.
@@ -58,6 +66,15 @@ FIGURE_RE = re.compile(r"\$\s*\d[\d,.]*[a-zA-Z]*|\d[\d,.]*\s*(?:%|x\b|bp\b)")
 
 # Rows of the ownership table inside sections.yaml's `section_ownership` prose.
 _OWNERSHIP_ROW_RE = re.compile(r"^\|\s*(?P<facts>[^|]+?)\s*\|\s*(?P<owner>§\d[^|]*?)\s*\|\s*$")
+
+# Openers that describe a page's ASSIGNMENT rather than its findings. Every
+# PANW page begins with one, which is how the old index came to summarise seven
+# pages as seven restatements of their own personas. Kept short and explicit: a
+# broad heuristic here would silently swallow real first sentences.
+_PREAMBLE_RE = re.compile(
+    r"^(?:scope|persona|working notes|period convention|one-line frame"
+    r"|fiscal (?:note|year)|frontmatter note|the one framing fact"
+    r"|read this page|these are|this page)\b", re.I)
 
 
 # --- page IO --------------------------------------------------------------
@@ -134,45 +151,253 @@ def _page_name(ticker_dir: Path, path: Path) -> str:
     return str(path.relative_to(ticker_dir / WIKI_SUBDIR).with_suffix(""))
 
 
-def update_index(ticker_dir: Path) -> Path:
-    """Regenerate `wiki/00_index.md` from page frontmatter.
+def _summary(post: "frontmatter.Post") -> str:
+    """One line describing what a page establishes.
+
+    An explicit `summary:` in frontmatter wins, and is what §14.2 asks a
+    synthesizer to write. The fallback exists for pages written before that
+    contract and is deliberately conservative: it strips the machinery a
+    working note carries (citations, status tags, emphasis) and skips the
+    scope/persona preamble most pages open with, because "Persona frame:
+    market structure and Porter's five forces" describes the assignment
+    rather than the findings — and an index of assignments is no map at all.
+    """
+    declared = post.metadata.get("summary")
+    if isinstance(declared, str) and declared.strip():
+        return _shorten(declared.strip())
+
+    for block in re.split(r"\n\s*\n", post.content):
+        text = " ".join(ln.strip() for ln in block.splitlines()
+                        if ln.strip()
+                        and not ln.lstrip().startswith(("#", "|", "-", ">"))
+                        and not re.match(r"^\d+[.)]\s", ln.lstrip()))
+        if not text:
+            continue
+        text = STATUS_TAG_RE.sub("", _prose(text))
+        text = re.sub(r"\*\*|__|(?<!\w)[*_](?!\s)", "", text)
+        text = re.sub(r"\s+", " ", text)
+        # Removing a citation mid-sentence leaves the space in front of it, so
+        # "…filed 2025-08-29[^id]." reads back as "…filed 2025-08-29 .".
+        text = re.sub(r"\s+([.,;:)])", r"\1", text).strip()
+        # Drop leading preamble SENTENCES rather than the whole paragraph. Most
+        # pages open "**One-line frame.** PANW owns none of its physical supply
+        # chain" — skipping the block would throw away the one good sentence on
+        # the page along with the label in front of it.
+        while text and _PREAMBLE_RE.match(text):
+            parts = re.split(r"(?<=[.!?:])\s+", text, maxsplit=1)
+            if len(parts) < 2:
+                text = ""
+                break
+            text = parts[1].strip()
+        # Gate what will actually be DISPLAYED, not the paragraph it came
+        # from: a long paragraph opening with a four-word sentence would
+        # otherwise pass the check and then be truncated back to the fragment
+        # the check exists to reject.
+        candidate = _shorten(text)
+        if _is_summary_like(candidate):
+            return candidate
+    return ""
+
+
+def _is_summary_like(text: str) -> bool:
+    """Whether a derived line is worth showing as a summary.
+
+    A wrong summary is worse than none: it makes the index look maintained
+    while misdescribing the page. So a fragment ("manufacturing partners..."),
+    a list marker ("1.") or a bare label ("Frontmatter note.") is rejected and
+    the row shows nothing — and `wiki_lint` raises `missing-summary`, which is
+    the defect that actually needs fixing.
+    """
+    return (len(text) >= 40 and len(text.split()) >= 6
+            and bool(re.match(r"[A-Z(\"']", text)) and not text.endswith(":"))
+
+
+def _shorten(text: str, limit: int = 140) -> str:
+    """First sentence, capped at `limit` on a word boundary."""
+    sentence = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)[0].strip()
+    if len(sentence) <= limit:
+        return sentence
+    return sentence[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+
+
+def _page_entry(ticker_dir: Path, path: Path) -> dict:
+    """Everything the index needs about one page, read once."""
+    post = frontmatter.load(path)
+    meta = post.metadata
+    questions = [q for q in (meta.get("open_questions") or []) if str(q).strip()]
+    return {
+        "name": _page_name(ticker_dir, path),
+        "href": path.relative_to(ticker_dir / WIKI_SUBDIR).as_posix(),
+        "summary": _summary(post),
+        "updated": str(meta.get("updated_at", ""))[:10],
+        "sources": len(meta.get("built_from") or []),
+        "questions": [str(q) for q in questions],
+        "dirty": bool(meta.get("dirty")),
+    }
+
+
+def update_index(ticker_dir: Path, sections_cfg: dict | None = None) -> Path:
+    """Regenerate `wiki/00_index.md` as the wiki's navigation page (§14.2).
 
     Deterministic and idempotent, like the source manifest: the index is
     generated, never hand-edited, so regenerating must not show up as a change.
+    That rule is why nothing here is stamped with the current time — a
+    generated-at line would make every rebuild a diff.
+
+    `sections_cfg` supplies section titles and report order. Without it the
+    index still builds, ordering section pages by `SECTION_IDS` and titling
+    them by page name, so callers that have no config (and the tests) are not
+    forced to load one.
     """
     wiki = ticker_dir / WIKI_SUBDIR
     wiki.mkdir(parents=True, exist_ok=True)
-    lines = [f"# Wiki index — {ticker_dir.name}", "",
-             "| Page | Section | Summary | Updated | Sources | Open Qs |",
-             "|---|---|---|---|---:|---:|"]
-    rows = 0
+
+    titles = _section_titles(sections_cfg)
+    entries = {}
     for path in _pages(ticker_dir):
-        post = frontmatter.load(path)
-        body_lines = [ln.strip() for ln in post.content.splitlines()
-                      if ln.strip() and not ln.strip().startswith("#")]
-        summary = body_lines[0][:120].replace("|", r"\|") if body_lines else ""
+        entry = _page_entry(ticker_dir, path)
+        entries[entry["name"]] = entry
+
+    lines = [
+        f"# {ticker_dir.name} — wiki",
+        "",
+        "Working notes behind each report section. These are silver (§8.1): cite",
+        "the bronze ids a page carries, never the page itself.",
+        "",
+        "[Phase journal](log.md) · "
+        "[Question ledger](../research/questions.json) · "
+        "[Latest report](../reports/latest/report.md)",
+        "",
+        "## Report sections",
+        "",
+        "| # | Page | Summary | Updated | Sources | Open Qs | Status |",
+        "|---:|---|---|---|---:|---:|---|",
+    ]
+
+    for number, section in enumerate(SECTION_IDS, start=1):
+        title = titles.get(section, section)
+        entry = entries.pop(section, None)
+        if entry is None:
+            # A section with no page is the most important thing this table can
+            # say, and the old index — which listed only the files it found —
+            # could not say it at all.
+            lines.append(f"| {number} | {cell(title)} | — | — | — | — | "
+                         f"not written |")
+            continue
         lines.append(
-            f"| {_page_name(ticker_dir, path)} | {post.metadata.get('section', '')} | "
-            f"{summary} | {str(post.metadata.get('updated_at', ''))[:10]} | "
-            f"{len(post.metadata.get('built_from') or [])} | "
-            f"{len(post.metadata.get('open_questions') or [])} |"
+            f"| {number} | [{cell(title)}]({entry['href']}) | "
+            f"{cell(entry['summary'])} | {entry['updated']} | "
+            f"{entry['sources']} | {len(entry['questions'])} | "
+            f"{'dirty' if entry['dirty'] else ''} |"
         )
-        rows += 1
-    if not rows:
-        lines.append("| (no pages yet) | | | | | |")
+
+    entity = [e for name, e in entries.items() if name.startswith("entities/")]
+    other = [e for name, e in entries.items() if not name.startswith("entities/")]
+
+    for heading, group in (("Entity pages", entity), ("Other pages", other)):
+        if not group:
+            continue
+        lines += ["", f"## {heading}", "",
+                  "| Page | Summary | Updated | Sources |",
+                  "|---|---|---|---:|"]
+        for entry in sorted(group, key=lambda e: e["name"]):
+            lines.append(
+                f"| [{cell(entry['name'])}]({entry['href']}) | "
+                f"{cell(entry['summary'])} | {entry['updated']} | "
+                f"{entry['sources']} |")
+
+    lines += _open_questions_rollup(ticker_dir, titles)
+
     out = wiki / INDEX_NAME
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return out
 
 
-def append_log(ticker_dir: Path, entry: str, now: datetime | None = None) -> Path:
-    """Append one timestamped line to `wiki/log.md`, the append-only journal."""
+def _section_titles(sections_cfg: dict | None) -> dict[str, str]:
+    if not sections_cfg:
+        return {}
+    sections = sections_cfg.get("sections") or {}
+    return {sid: str(cfg.get("title") or sid)
+            for sid, cfg in sections.items() if isinstance(cfg, dict)}
+
+
+def _open_questions_rollup(ticker_dir: Path, titles: dict[str, str]) -> list[str]:
+    """Every page's `open_questions`, grouped by page.
+
+    The single most useful thing the index can carry: it answers "what is still
+    unknown" without opening seven 60KB pages. Ordered by report order, then by
+    page name, so the file stays byte-stable across rebuilds.
+    """
+    entries = [_page_entry(ticker_dir, path) for path in _pages(ticker_dir)]
+    with_questions = [e for e in entries if e["questions"]]
+    if not with_questions:
+        return []
+
+    def order(entry: dict) -> tuple[int, str]:
+        name = entry["name"]
+        index = SECTION_IDS.index(name) if name in SECTION_IDS else len(SECTION_IDS)
+        return (index, name)
+
+    total = sum(len(e["questions"]) for e in with_questions)
+    lines = ["", "## Open questions", "",
+             f"{total} open across {len(with_questions)} "
+             f"page{'s' if len(with_questions) != 1 else ''}.", ""]
+    for entry in sorted(with_questions, key=order):
+        name = entry["name"]
+        title = titles.get(name, name)
+        lines.append(f"### [{title}]({entry['href']})")
+        lines.append("")
+        for question in entry["questions"]:
+            lines.append(f"- {_shorten(' '.join(question.split()), limit=240)}")
+        lines.append("")
+    return lines[:-1] if lines and lines[-1] == "" else lines
+
+
+def append_log(ticker_dir: Path, entry: str, now: datetime | None = None, *,
+               agents: int | None = None, tokens: int | None = None,
+               minutes: float | None = None, run: str | None = None) -> Path:
+    """Append one timestamped line to `wiki/log.md`, the append-only journal.
+
+    §23.4 keeps this a PHASE journal rather than an audit log — one entry per
+    phase boundary, written by the orchestrating skill. The optional cost
+    fields do not change that; they answer the question the journal could not
+    previously answer at all ("what did that phase cost?") and point at
+    `run_log.md`, which is the audit log.
+
+    With none of them supplied the output is byte-identical to what it has
+    always been, so the six skills that call this keep working while they are
+    updated one at a time.
+    """
     log = ticker_dir / WIKI_SUBDIR / LOG_NAME
     log.parent.mkdir(parents=True, exist_ok=True)
     stamp = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
+    lines = [f"- {stamp} {entry}"]
+    detail = _cost_note(agents=agents, tokens=tokens, minutes=minutes, run=run)
+    if detail:
+        lines.append(f"  {detail}")
     with log.open("a", encoding="utf-8") as f:
-        f.write(f"- {stamp} {entry}\n")
+        f.write("\n".join(lines) + "\n")
     return log
+
+
+def _cost_note(*, agents: int | None, tokens: int | None,
+               minutes: float | None, run: str | None) -> str:
+    """The indented second line of a journal entry, or `""`."""
+    parts = []
+    if agents is not None:
+        parts.append(f"{agents} agent{'s' if agents != 1 else ''}")
+    if tokens is not None:
+        parts.append(f"{tokens / 1000:,.0f}k tok" if tokens >= 1000
+                     else f"{tokens} tok")
+    if minutes is not None:
+        parts.append(f"{minutes:.1f} min")
+    if not parts:
+        return ""
+    note = " · ".join(parts)
+    if run:
+        # Relative to wiki/, which is where log.md lives.
+        return f"[{note}](../reports/{run}/{RUN_LOG_NAME})"
+    return note
 
 
 # --- advisory lint (§22.1) ------------------------------------------------
@@ -240,6 +465,17 @@ def _lint_page(ticker_dir: Path, path: Path, page: str, section: str,
     post = frontmatter.load(path)
     rel = str(path.relative_to(ticker_dir))
 
+    declared = post.metadata.get("summary")
+    if not (isinstance(declared, str) and declared.strip()):
+        # The index falls back to deriving one, but a working note opens with
+        # its scope and period conventions, so what gets derived describes the
+        # assignment rather than the finding. One sentence from whoever wrote
+        # the page beats any heuristic over it (§14.2).
+        findings.append(Finding(
+            "warning", "missing-summary", rel,
+            "no `summary:` in frontmatter — the wiki index has to guess a "
+            "one-line description from the prose (§14.2)"))
+
     for paragraph in _paragraphs(post.content):
         has_citation = bool(CITATION_RE.search(paragraph))
         paragraph = _prose(paragraph)
@@ -304,23 +540,29 @@ def _duplicate_figures(ticker_dir: Path) -> list[Finding]:
     ]
 
 
-def _unindexed_entities(ticker_dir: Path) -> list[Finding]:
-    """Entity pages absent from `00_index.md` (§22.1's set difference). The
-    index is a researcher's map of the wiki; a page missing from it is a page
-    nobody will read."""
-    entities_dir = ticker_dir / WIKI_SUBDIR / "entities"
-    if not entities_dir.is_dir():
-        return []
+def _unindexed_pages(ticker_dir: Path) -> list[Finding]:
+    """Any page absent from `00_index.md` (§22.1's set difference). The index
+    is a researcher's map of the wiki; a page missing from it is a page nobody
+    will read.
+
+    Covers every page, not just entities. The narrower check could not see the
+    failure that actually happens: a section page edited outside `/sra-research`
+    — by a lint correction pass, say — leaves an index that still describes the
+    previous version, and the section rows are the ones anybody reads.
+    """
     index_path = ticker_dir / WIKI_SUBDIR / INDEX_NAME
     index_text = index_path.read_text(encoding="utf-8") if index_path.exists() else ""
-    return [
-        Finding("warning", "entity-not-indexed",
-                str(path.relative_to(ticker_dir)),
-                f"entity page {_page_name(ticker_dir, path)!r} is not listed in "
-                f"{INDEX_NAME} (run: sra.py wiki-index)")
-        for path in sorted(entities_dir.glob("*.md"))
-        if _page_name(ticker_dir, path) not in index_text
-    ]
+    findings = []
+    for path in _pages(ticker_dir):
+        name = _page_name(ticker_dir, path)
+        if name in index_text:
+            continue
+        kind = "entity" if name.startswith("entities/") else "wiki"
+        findings.append(Finding(
+            "warning", "page-not-indexed", str(path.relative_to(ticker_dir)),
+            f"{kind} page {name!r} is not listed in {INDEX_NAME} "
+            f"(run: sra.py wiki-index)"))
+    return findings
 
 
 def wiki_lint(ticker_dir: Path, sections_cfg: dict) -> list[Finding]:
@@ -333,5 +575,5 @@ def wiki_lint(ticker_dir: Path, sections_cfg: dict) -> list[Finding]:
         section = str(frontmatter.load(path).metadata.get("section") or page)
         findings += _lint_page(ticker_dir, path, page, section, owners)
     findings += _duplicate_figures(ticker_dir)
-    findings += _unindexed_entities(ticker_dir)
+    findings += _unindexed_pages(ticker_dir)
     return findings

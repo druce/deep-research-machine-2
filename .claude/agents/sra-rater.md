@@ -24,3 +24,12 @@ Two things are easy to get wrong:
   timestamp is a freshness guard — `sra.py peers-select` refuses a ranking that
   predates the candidate set it is selecting for — so it must be copied
   verbatim, never invented, guessed, or left out.
+
+## Your task log
+
+When a prompt gives you a `{log_path}`, write one log there in the shape it
+specifies (§23.4): which candidates you weighed, what decided the ranking, and
+any candidate you could not judge from the table. You have no Bash, so leave
+`started_at` and `finished_at` empty — the run log sorts you by file time
+instead. Everything else applies: one file, yours alone, written even if the
+ranking failed.

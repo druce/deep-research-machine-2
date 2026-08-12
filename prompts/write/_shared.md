@@ -120,9 +120,27 @@ is more than 20% either side.
   resolved with a view. Both-sides-and-stop is a failure.
 - **Ownership**: no fact this section does not own is restated with its number.
 - **Opinion vs fact**: judgments are framed as judgments, facts as facts.
-- **Style**: no promotional language, no throat-clearing, no LLM tells ("In
-  conclusion", "Overall", "It is worth noting", "comprehensive", "robust"), no
-  hedging, no bullet lists where prose belongs. Full compliance with `STYLE.md`.
+- **Style**: no promotional language, no throat-clearing, no hedging, no bullet
+  lists where prose belongs. Full compliance with `STYLE.md`.
+- **Voice**: the dominant failure here is not "In conclusion" or "robust" — it is
+  the epigrammatic essay voice described under *Voice and sentence mechanics* in
+  `STYLE.md`. Count these in the draft. Report all of them as **one** numbered
+  item against the budget below, giving the count per category and quoting the
+  two or three worst spans — not one item per instance:
+  - `"X, not Y"` antithesis — **at most 1** per section;
+  - em dashes — **at most 1 per paragraph**;
+  - sentences whose subject is an abstract noun with a definite article ("The
+    moat is attach", "The load-bearing assumption is...") — **at most 2**;
+  - invented metaphors, as opposed to standard market vocabulary — **0**;
+  - `I`, `my`, or an imperative aimed at the reader ("Underwrite the 28%",
+    "Treat it as a ceiling") — **0**; the report says "we";
+  - British spellings (`amortisation`, `organisation`, `recognised`) — **0**;
+  - headings written as theses rather than labels;
+  - verbless fragments used as verdicts ("Volatility, not terminal value.").
+
+  These are form defects, not content defects. Never propose fixing one by
+  dropping the judgment, the number or the position — the rewrite keeps all
+  three and changes only the sentence.
 - **Numbers**: prices to 2 decimals, market cap in billions to 1 decimal,
   percentages to 1 decimal, multiples to 1 decimal with `x`, fiscal years
   labeled explicitly.

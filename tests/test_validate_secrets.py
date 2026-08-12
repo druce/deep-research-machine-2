@@ -84,6 +84,27 @@ def test_an_openai_key_pattern_is_an_error(tmp_ticker_dir: Path):
     assert _secret_findings(tmp_ticker_dir)
 
 
+def test_sk_inside_a_word_is_not_a_key(tmp_ticker_dir: Path):
+    """The SPCX build failed its fatal gate 28 times on the word "musk".
+
+    `sk-` continuing a word is ordinary English in a URL slug, and a corpus
+    about Elon Musk is made of them. A gate that fires on every one of those is
+    a gate people learn to bypass, which costs more than the shape ever caught.
+    """
+    write_source(tmp_ticker_dir, _source_meta("2026-07-30_news_yahoo"),
+                 "https://fortune.com/2026/06/20/elon-musk-colossus-datacenter-spacex/\n"
+                 "https://cnbc.com/2026/02/03/musk-xai-spacex-biggest-merger-ever.html\n")
+    assert _secret_findings(tmp_ticker_dir) == []
+
+
+def test_a_real_key_after_a_word_character_boundary_still_fires(tmp_ticker_dir: Path):
+    """The boundary must not become an escape hatch: a key is still a key when
+    it follows punctuation rather than whitespace."""
+    write_source(tmp_ticker_dir, _source_meta("2026-07-30_news_yahoo"),
+                 f"token=({OPENAI_KEY})")
+    assert _secret_findings(tmp_ticker_dir)
+
+
 def test_a_bare_fred_shaped_key_is_an_error(tmp_ticker_dir: Path):
     """§8.4: pattern matching is what catches a rotated key the current
     environment no longer holds."""

@@ -15,8 +15,8 @@ import pytest
 
 from lib.questions import DEFAULT_ORIGIN
 from lib.run_stats import (
-    PURPOSES, check_budgets, load_run_stats, record_subagent, recompute_totals,
-    start_run, finish_run, write_run_stats,
+    MAX_SUBAGENTS, PURPOSES, check_budgets, load_run_stats, record_subagent,
+    recompute_totals, start_run, finish_run, write_run_stats,
 )
 
 START = "2026-08-11T09:00:00+00:00"
@@ -110,9 +110,10 @@ def test_a_run_inside_every_budget_reports_no_violation():
 
 def test_too_many_subagents_is_a_violation():
     stats = _stats(subagents=[{"purpose": "answerer", "input_tokens": 1,
-                               "output_tokens": 1}] * 81)
+                               "output_tokens": 1}] * (MAX_SUBAGENTS + 1))
     violations = check_budgets(stats)
-    assert any("subagents" in v and "81" in v for v in violations)
+    assert any("subagents" in v and str(MAX_SUBAGENTS + 1) in v
+               for v in violations)
 
 
 def test_too_many_tokens_is_a_violation():
@@ -152,8 +153,8 @@ def test_unparseable_timestamps_do_not_crash_the_check():
 
 def test_budget_violations_name_the_limit_they_broke():
     stats = _stats(subagents=[{"purpose": "answerer", "input_tokens": 1,
-                               "output_tokens": 1}] * 81)
-    assert "80" in " ".join(check_budgets(stats))
+                               "output_tokens": 1}] * (MAX_SUBAGENTS + 1))
+    assert str(MAX_SUBAGENTS) in " ".join(check_budgets(stats))
 
 
 # --- persistence ----------------------------------------------------------

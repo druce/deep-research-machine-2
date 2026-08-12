@@ -59,6 +59,7 @@ from lib.statefile import (
     init_state, load_state, mark_section_dirty, record_derived, record_fetch,
     save_state, stale_kinds)
 from lib.validate import has_errors, validate
+from lib.run_log import build_run_log
 from lib.wiki import append_log, update_index, wiki_lint
 
 # Provider credentials (FMP, FRED, OpenAI, Perplexity) live in .env at the repo
@@ -1037,7 +1038,9 @@ def cmd_wiki_log(args: argparse.Namespace) -> int:
         return 1
     try:
         with TickerLock(d, "wiki-log", force=args.force_lock):
-            path = append_log(d, args.entry)
+            path = append_log(d, args.entry, agents=args.agents,
+                              tokens=args.tokens, minutes=args.minutes,
+                              run=args.run)
     except LockHeldError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -1149,6 +1152,29 @@ def cmd_assemble(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run_log(args: argparse.Namespace) -> int:
+    """Assemble `reports/<run>/run_log.md` from the run's task logs (§23.4).
+
+    Read-mostly and deterministic: it writes one generated file from inputs
+    that already exist, so it takes no lock and can be run against a build
+    that is still in flight — which is when an audit log is most wanted.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+    if not _require_initialized(ticker, d):
+        return 1
+
+    run_dir = resolve_run(d, args.run, _utcnow().date())
+    if not run_dir.is_dir():
+        print(f"{ticker}: no run directory {run_dir.name} under reports/",
+              file=sys.stderr)
+        return 1
+    print(build_run_log(d, run_dir))
+    return 0
+
+
 def cmd_snapshot(args: argparse.Namespace) -> int:
     """Stamp a report run immutable and point `reports/latest` at it (§15.3).
 
@@ -1217,7 +1243,7 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
 
 
 def cmd_wiki_index(args: argparse.Namespace) -> int:
-    """Regenerate `wiki/00_index.md` from page frontmatter (§4)."""
+    """Regenerate `wiki/00_index.md` as the wiki's navigation page (§14.2)."""
     resolved = _resolve_ticker(args)
     if resolved is None:
         return 1
@@ -1226,7 +1252,7 @@ def cmd_wiki_index(args: argparse.Namespace) -> int:
         return 1
     try:
         with TickerLock(d, "wiki-index", force=args.force_lock):
-            path = update_index(d)
+            path = update_index(d, load_sections())
     except LockHeldError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -1411,8 +1437,23 @@ def build_parser() -> argparse.ArgumentParser:
     add("wiki-index", cmd_wiki_index, mutating=True)
     add("wiki-lint", cmd_wiki_lint, mutating=False)
 
+    sp = add("run-log", cmd_run_log, mutating=False)
+    sp.add_argument("--run", default=None,
+                    help="run directory name under reports/ (default: the "
+                         "newest run that has not been snapshotted)")
+
     sp = add("wiki-log", cmd_wiki_log, mutating=True)
     sp.add_argument("--entry", required=True, help="log line to append")
+    # §23.4: the journal stays one entry per phase boundary. These only add
+    # what that entry cost and where the detail lives.
+    sp.add_argument("--agents", type=int, default=None,
+                    help="how many model subagents the phase used")
+    sp.add_argument("--tokens", type=int, default=None,
+                    help="total tokens the phase consumed")
+    sp.add_argument("--minutes", type=float, default=None,
+                    help="wall clock the phase took")
+    sp.add_argument("--run", default=None,
+                    help="run directory whose run_log.md the entry links to")
 
     sp = add("mark-dirty", cmd_mark_dirty, mutating=True)
     sp.add_argument("--section", required=True,

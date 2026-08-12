@@ -9,6 +9,7 @@ from __future__ import annotations
 from lib.research import (
     DEFAULT_ROUNDS,
     MAX_ATTEMPTS,
+    MAX_INCREMENTAL_SUBAGENTS,
     MAX_PARALLEL_AGENTS,
     QUESTIONS_PER_BATCH,
     batch_questions,
@@ -23,7 +24,8 @@ def qs(section: str, n: int, start: int = 0) -> list[dict]:
 
 def test_pinned_constants():
     """§24 pins these; a drift changes what a build costs with nothing failing."""
-    assert MAX_PARALLEL_AGENTS == 8
+    assert MAX_PARALLEL_AGENTS == 16
+    assert MAX_INCREMENTAL_SUBAGENTS == 8
     assert QUESTIONS_PER_BATCH == (2, 4)
     assert MAX_ATTEMPTS == 3
     assert DEFAULT_ROUNDS == 3
@@ -75,12 +77,26 @@ def test_empty_input_produces_no_batches():
 def test_the_cap_is_a_width_not_a_limit():
     """§24: an open set needing more than MAX_PARALLEL_AGENTS batches runs in
     successive waves. Nothing is dropped."""
-    batches = batch_questions(qs("valuation", 33))
-    assert len(batches) >= 9                       # §24's worked example
+    # One batch past the width, whatever the width currently is — the property
+    # under test is "it spills into a second wave", not the number 8.
+    n = (MAX_PARALLEL_AGENTS + 1) * 4
+    batches = batch_questions(qs("valuation", n))
+    assert len(batches) > MAX_PARALLEL_AGENTS
     scheduled = waves(batches)
-    assert len(scheduled) == 2                     # 9 batches -> 8 + 1
+    assert len(scheduled) == 2
     assert all(len(w) <= MAX_PARALLEL_AGENTS for w in scheduled)
     assert sum(len(w) for w in scheduled) == len(batches)
+
+
+def test_a_cold_build_round_one_fits_in_a_single_wave():
+    """The reason the width is 16. Seven sections of 5-6 seed questions produce
+    10-14 batches; at a width of 8 that ran as two waves and paid a full
+    answerer's wall clock for nothing."""
+    seeded = [q for section in ("profile", "business_model", "competitive",
+                                "supply_chain", "financial", "valuation",
+                                "risk_news")
+              for q in qs(section, 6)]
+    assert len(waves(batch_questions(seeded))) == 1
 
 
 def test_every_question_survives_wave_scheduling():

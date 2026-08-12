@@ -1,0 +1,16 @@
+{
+  "$comment": [
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS raises the Agent-tool concurrency limit",
+    "from its default of 20. /sra-research dispatches roughly 23 answerers in a",
+    "round (spec 14.1), so at the default the last wave spills into a second pass",
+    "for no reason but the cap.",
+    "",
+    "This does NOT affect Workflow scripts. A workflow's agent() calls are capped",
+    "separately at min(16, max(2, cpu_cores - 2)) — 6 on an 8-core machine — and",
+    "that limit is computed from the core count at module load with no env var to",
+    "override it. workflows/write_wave.js is written with that ceiling in mind."
+  ],
+  "env": {
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "24"
+  }
+}
