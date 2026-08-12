@@ -31,6 +31,8 @@ PREFETCH_SKILL = ROOT / ".claude" / "skills" / "sra-prefetch" / "SKILL.md"
 CHARTBOOK_SKILL = ROOT / ".claude" / "skills" / "sra-chartbook" / "SKILL.md"
 CHARTBOOK_PROMPT = ROOT / "prompts" / "chartbook.md"
 TOPIC_PROMPTS = ROOT / "prompts" / "prefetch_research"
+WRITE_SKILL = ROOT / ".claude" / "skills" / "sra-write" / "SKILL.md"
+WRITE_PROMPTS = ROOT / "prompts" / "write"
 
 
 def researcher_text() -> str:
@@ -401,6 +403,110 @@ def test_chartbook_skill_verifies_the_selection_resolves():
     body = CHARTBOOK_SKILL.read_text(encoding="utf-8")
     assert "chartbook.json" in body
     assert "missing_png" in body
+
+
+# --- the write prompts and skill -------------------------------------------
+
+def section_prompt(section: str) -> str:
+    return (WRITE_PROMPTS / f"{section}.md").read_text(encoding="utf-8")
+
+
+def shared_prompt() -> str:
+    return (WRITE_PROMPTS / "_shared.md").read_text(encoding="utf-8")
+
+
+def report_sections() -> tuple[str, ...]:
+    from lib.sections import SECTION_IDS
+
+    return SECTION_IDS
+
+
+def test_every_section_has_a_write_prompt():
+    """§15.1 writes all seven in one wave; a missing prompt file is a section
+    the wave silently cannot draft."""
+    present = {p.stem for p in WRITE_PROMPTS.glob("*.md")} - {"_shared"}
+    assert present == set(report_sections())
+
+
+@pytest.mark.parametrize("section", report_sections())
+def test_each_prompt_carries_all_three_stages(section):
+    """§15.1's per-section chain: writer drafts, critic reviews, rewrite applies."""
+    body = section_prompt(section)
+    for stage in ("## Writer", "## Critic", "## Rewrite"):
+        assert stage in body, f"{section}: {stage}"
+
+
+@pytest.mark.parametrize("section", report_sections())
+def test_each_prompt_injects_the_guidance_rather_than_copying_it(section):
+    """§18.1 makes `sections.yaml` the owner of what a section must contain. A
+    prompt that restated `write_guidance` would be a second copy to drift."""
+    from lib.sections import load_sections
+
+    body = section_prompt(section)
+    assert "{write_guidance}" in body
+    assert "{section_ownership}" in body
+    assert "{tension_analysis}" in body
+
+    guidance = load_sections()["sections"][section]["write_guidance"]
+    first_clause = guidance.strip().split(".")[0][:60]
+    assert first_clause not in body, f"{section}: write_guidance copied inline"
+
+
+@pytest.mark.parametrize("section", report_sections())
+def test_no_prompt_invents_a_placeholder_nothing_fills(section):
+    """A `{placeholder}` the orchestrator does not know about reaches the agent
+    as literal braces."""
+    known = {"ticker", "company", "section", "wiki_page", "word_target",
+             "workdir", "report_date", "draft_path", "critique_path",
+             "write_guidance", "section_ownership", "tension_analysis",
+             "hard_checks_json"}
+    found = set(re.findall(r"\{([a-z_]+)\}", section_prompt(section)))
+    assert found <= known, f"{section}: unknown {sorted(found - known)}"
+
+
+def test_shared_prompt_forbids_independent_retrieval():
+    """§15.1: "They do not perform independent retrieval." A fact discovered
+    while writing has no bronze id, so it cannot be cited or survive assembly."""
+    body = shared_prompt()
+    assert re.search(r"[Dd]o no independent retrieval", body)
+    assert "add-questions" in body       # the sanctioned response to a gap
+
+
+def test_shared_prompt_states_the_citation_and_save_contract():
+    body = shared_prompt()
+    assert "[^<bronze-id>]" in body
+    assert "reports/{report_date}/sections/{section}.md" in body
+    assert re.search(r"[Nn]ever cite a wiki page", body)
+    assert "lib.hard_checks" in body
+
+
+def test_shared_prompt_keeps_the_critique_budget():
+    """Ported from sra5: a critique longer than its draft is unfocused."""
+    body = shared_prompt()
+    assert "1,200 words" in body
+    assert "15 numbered items" in body
+
+
+def test_write_skill_exists_and_runs_one_writer():
+    post = frontmatter.load(WRITE_SKILL)
+    assert post.metadata["name"] == "sra-write"
+    body = WRITE_SKILL.read_text(encoding="utf-8")
+    assert 'subagent_type: "sra-writer"' in body
+    assert "single_section_critic" in body      # §15.1's upgrade flag
+    assert "prompts/write/_shared.md" in body
+
+
+def test_every_sra_subcommand_the_write_skill_runs_is_registered():
+    named = bash_subcommands(WRITE_SKILL.read_text(encoding="utf-8"))
+    assert named <= registered_subcommands(), \
+        f"unregistered: {sorted(named - registered_subcommands())}"
+
+
+def test_write_skill_verifies_the_draft_itself():
+    """A writer agent reporting success is not evidence the checks passed."""
+    body = WRITE_SKILL.read_text(encoding="utf-8")
+    assert "lib.hard_checks" in body
+    assert "sra.py validate" in body
 
 
 def test_prefetch_answer_snippet_matches_source_meta():
