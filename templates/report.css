@@ -629,3 +629,38 @@ h1, h2, h3, h4 { break-after: avoid; }
   .peer-table tbody tr:first-child { outline: 2px solid currentColor; }
 }
 </style>
+
+/* --- citation anchors ---------------------------------------------------
+   Markers are superscript links into the References list; each entry links
+   back to every place it was cited. `scroll-margin-top` keeps a jump target
+   clear of the running header instead of landing underneath it. */
+
+.cite a {
+  font-size: .72em;
+  vertical-align: super;
+  line-height: 0;
+  text-decoration: none;
+  color: var(--info);
+  padding: 0 .08em;
+}
+
+.cite a:hover { text-decoration: underline; }
+
+.ref-n { font-weight: 600; }
+
+.backref {
+  text-decoration: none;
+  color: var(--info);
+  font-size: .85em;
+  margin-left: .2em;
+}
+
+[id^="cite-"], [id^="ref-"] { scroll-margin-top: 1.5rem; }
+
+[id^="cite-"]:target, [id^="ref-"]:target {
+  background: #fff3bf;
+  border-radius: 2px;
+}
+
+/* Half a line between reference entries — the dense list is unreadable. */
+#references p, #references li { margin-bottom: .6em; }

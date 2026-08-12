@@ -13,7 +13,8 @@ from pathlib import Path
 from lib.provenance import (
     SourceMeta, StructuredMeta, write_derived, write_source, write_structured,
 )
-from lib.validate import Finding, validate
+from lib.render.postprocess import link_citations
+from lib.validate import CITATION_RE, Finding, validate
 
 
 def _source_meta(source_id: str, *, ticker: str = "PANW",
@@ -151,9 +152,20 @@ def test_entity_pages_are_checked(tmp_ticker_dir: Path):
 # --- check 4, gold half: numeric citations through citation_map.json -----
 
 def _report(ticker_dir: Path, body: str, citation_map: dict | None) -> Path:
+    """Write an assembled report the way `assemble` writes one.
+
+    The body is given with `[^N]` markers for readability, then run through the
+    real `link_citations` against a synthetic References list — so these tests
+    see the anchored shape a shipped report actually has, not a form that no
+    longer reaches disk.
+    """
     run = ticker_dir / "reports" / "2026-08-11"
     run.mkdir(parents=True, exist_ok=True)
-    (run / "report.md").write_text(body, encoding="utf-8")
+    numbers = sorted(set(CITATION_RE.findall(body)), key=int)
+    references = "".join(f"[{n}] A source — example.com\n" for n in numbers)
+    (run / "report.md").write_text(
+        link_citations(f"{body}\n## References\n\n{references}"),
+        encoding="utf-8")
     if citation_map is not None:
         (run / "citation_map.json").write_text(json.dumps(citation_map), encoding="utf-8")
     return run

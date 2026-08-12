@@ -368,6 +368,23 @@ def _check_citations(ticker_dir: Path, data_root: Path) -> list[Finding]:
     return findings
 
 
+# An assembled report's citations are anchors, not markers: `link_citations`
+# rewrites every `[^N]` it can resolve. Reading only CITATION_RE here would
+# find nothing in a real report and silently retire this whole check.
+_ANCHORED_CITATION_RE = re.compile(r'href="#ref-(\d+)"')
+
+
+def _report_citations(text: str) -> list[str]:
+    """Every citation id in an assembled report, in order of first appearance.
+
+    Both forms count: the anchored form assembly produces, and any literal
+    `[^id]` that survived — which `_check_dangling_citations` fails separately,
+    but which must still be resolved rather than skipped here.
+    """
+    return list(dict.fromkeys(
+        _ANCHORED_CITATION_RE.findall(text) + CITATION_RE.findall(text)))
+
+
 def _check_assembled_reports(ticker_dir: Path, data_root: Path) -> list[Finding]:
     """§8.2's gold check: every numeric citation in an assembled report exists
     in `citation_map.json`, and every mapped id resolves to bronze. "A citation
@@ -375,8 +392,7 @@ def _check_assembled_reports(ticker_dir: Path, data_root: Path) -> list[Finding]
     findings: list[Finding] = []
     for report in sorted((ticker_dir / "reports").glob("*/report.md")):
         rel = _rel(report, ticker_dir)
-        cited = list(dict.fromkeys(CITATION_RE.findall(
-            report.read_text(encoding="utf-8"))))
+        cited = _report_citations(report.read_text(encoding="utf-8"))
         if not cited:
             continue
 
@@ -439,6 +455,29 @@ def _check_report_exhibits(ticker_dir: Path) -> list[Finding]:
                     f"image {target} appears {seen} times; each exhibit must "
                     f"be placed exactly once (§16.2)",
                 ))
+    return findings
+
+
+_LITERAL_MARKER_RE = re.compile(r"\[\^[^\]\s]+\]")
+
+
+def _check_dangling_citations(ticker_dir: Path) -> list[Finding]:
+    """No raw `[^…]` marker survives into an assembled report (§8.2).
+
+    `postprocess.link_citations` rewrites every marker whose number has a
+    References entry. Anything still literal here resolves to nothing and would
+    print in the PDF as punctuation the reader cannot act on.
+    """
+    findings: list[Finding] = []
+    for report in sorted((ticker_dir / "reports").glob("*/report.md")):
+        markers = list(dict.fromkeys(_LITERAL_MARKER_RE.findall(
+            report.read_text(encoding="utf-8"))))
+        if markers:
+            findings.append(Finding(
+                "error", "citation-unlinked", _rel(report, ticker_dir),
+                f"{len(markers)} citation marker(s) resolve to no reference "
+                f"entry and would print literally: {', '.join(markers[:5])}",
+            ))
     return findings
 
 
@@ -652,6 +691,7 @@ def validate(ticker_dir: Path, data_root: Path) -> list[Finding]:
     findings += _check_citations(ticker_dir, data_root)
     findings += _check_assembled_reports(ticker_dir, data_root)
     findings += _check_report_exhibits(ticker_dir)
+    findings += _check_dangling_citations(ticker_dir)
     findings += _check_derivations(ticker_dir, data_root)
     findings += _check_secrets(ticker_dir)
     findings += _check_recorded_requests(ticker_dir)

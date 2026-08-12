@@ -55,3 +55,15 @@ def test_document_without_references_is_unchanged() -> None:
 
 def test_postprocess_chain_applies_it() -> None:
     assert 'href="#ref-1"' in postprocess(f"Claim.[^1]\n\n{REFS}")
+
+
+def test_anchored_citations_are_still_resolvable_by_the_gate() -> None:
+    """`link_citations` must not hide citations from `_check_assembled_reports`.
+
+    That check reads `[^N]` markers. Once every marker becomes an anchor, a
+    validator that only knew the marker form would find nothing to verify and
+    would pass any report at all.
+    """
+    from lib.validate import _report_citations
+
+    assert _report_citations(link_citations(f"A.[^1] B.[^2]\n\n{REFS}")) == ["1", "2"]

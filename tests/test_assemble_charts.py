@@ -94,3 +94,22 @@ def test_distinct_images_produce_no_finding(tmp_path: Path) -> None:
         "![](../../charts/candidates/price_weekly.png)\n"))
 
     assert [f for f in validate(d, data_root) if f.code == "exhibit-duplicated"] == []
+
+
+def test_dangling_citation_marker_is_fatal(tmp_path: Path) -> None:
+    d, data_root = _report_tree(
+        tmp_path, "A claim.[^7]\n\n## References\n\n[1] Only source\n")
+
+    findings = [f for f in validate(d, data_root) if f.code == "citation-unlinked"]
+
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+
+
+def test_linked_citations_produce_no_finding(tmp_path: Path) -> None:
+    d, data_root = _report_tree(tmp_path, (
+        'A claim.<sup class="cite"><a id="cite-1-1" href="#ref-1">1</a></sup>\n\n'
+        "## References\n\n"
+        '<span class="ref-n" id="ref-1">[1]</span> Only source\n'))
+
+    assert [f for f in validate(d, data_root) if f.code == "citation-unlinked"] == []
