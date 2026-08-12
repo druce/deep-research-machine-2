@@ -46,6 +46,8 @@ from lib.charts.registry import RENDERERS, select
 from lib.provenance import (
     StructuredMeta, _reject_path_traversal, read_structured, resolve_artifact,
     resolve_source, write_derived)
+from lib.render.assemble import assemble
+from lib.render.runs import resolve_run
 from lib.questions import (
     DEFAULT_ORIGIN, STATUSES, add_questions, drop_question, load_questions,
     mark_answered, record_attempt)
@@ -1064,6 +1066,57 @@ def cmd_charts(args: argparse.Namespace) -> int:
     return 0 if not errors else 2
 
 
+def cmd_assemble(args: argparse.Namespace) -> int:
+    """Assemble one report run into markdown, HTML and PDF (§15.3).
+
+    Deterministic and agent-free by construction: everything it needs was
+    written by the write wave, the polish chain and the chart-selection skill
+    before it ran (§16.4's ordering).
+
+    Exit 1 on any contract failure — a missing draft, a chartbook naming an
+    exhibit that did not render, an internal filename in prose, a citation that
+    resolves to nothing or to silver. A render failure (no pandoc, no Pango) is
+    NOT exit 1: §22.3 degrades it into a reported error, since the assembled
+    markdown and its references are already on disk.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+    if not _require_initialized(ticker, d):
+        return 1
+
+    run_dir = resolve_run(d, args.run, _utcnow().date())
+    if not run_dir.is_dir():
+        print(f"{ticker}: no report run at {run_dir} — run the write wave first",
+              file=sys.stderr)
+        return 1
+
+    try:
+        with TickerLock(d, "assemble", force=args.force_lock):
+            ok, data, err = assemble(d, run_dir)
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    if not ok:
+        print(f"assemble: {err}", file=sys.stderr)
+        return 1
+
+    for message in data["render_errors"]:
+        print(f"warning: {message}", file=sys.stderr)
+    print(json.dumps({
+        "run": run_dir.name,
+        "markdown": str(data["markdown"]),
+        "html": str(data["html"]) if data["html"] else None,
+        "pdf": str(data["pdf"]) if data["pdf"] else None,
+        "citations": data["citations"],
+        "exhibits": data["exhibits"],
+        "render_errors": data["render_errors"],
+    }, indent=2))
+    return 0
+
+
 def cmd_wiki_index(args: argparse.Namespace) -> int:
     """Regenerate `wiki/00_index.md` from page frontmatter (§4)."""
     resolved = _resolve_ticker(args)
@@ -1238,6 +1291,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--verdict", action="store_true",
                     help="render the conclusion-dependent exhibits instead, "
                          "reading reports/latest/verdict.json (§16.4)")
+
+    sp = add("assemble", cmd_assemble, mutating=True)
+    sp.add_argument("--run", default=None,
+                    help="run directory name under reports/ (default: the "
+                         "newest run that has not been snapshotted)")
 
     add("wiki-index", cmd_wiki_index, mutating=True)
     add("wiki-lint", cmd_wiki_lint, mutating=False)
