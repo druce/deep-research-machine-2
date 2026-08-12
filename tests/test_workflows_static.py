@@ -29,8 +29,9 @@ ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / "workflows"
 AGENTS = ROOT / ".claude" / "agents"
 
-# Files that must exist. Added to as Phase 11 lands the polish chain.
-EXPECTED = ("write_wave.js",)
+# §15.2's two permitted scripts.
+EXPECTED = ("write_wave.js", "polish_chain.js")
+POLISH_PROMPTS = ROOT / "prompts" / "polish"
 
 
 def source(name: str) -> str:
@@ -244,3 +245,118 @@ def test_write_wave_stage_schema_is_valid_json_schema():
     assert schema["type"] == "object"
     assert "section" in schema["required"]
     assert "hard_checks_passed" in schema["required"]
+
+
+# --- the polish chain's own contract ----------------------------------------
+
+def test_polish_chain_runs_the_five_stages_sequentially():
+    """§15.2's order. Unlike the write wave nothing here is parallelizable —
+    every stage reads what the previous one wrote, and the polish stage
+    consumes both worklists."""
+    text = source("polish_chain.js")
+    order = ["Cross-check", "Conclusion", "Critique", "Polish", "Evaluate"]
+    positions = [text.index(f"phase('{name}')") for name in order]
+    assert positions == sorted(positions)
+    assert "pipeline(" not in text, "the stages are sequential, not a pipeline"
+    assert "parallel(" not in text
+
+
+def test_every_polish_stage_has_its_prompt_file():
+    """A stage naming a prompt that does not exist fails mid-chain, after the
+    conclusion has already been written."""
+    text = source("polish_chain.js")
+    named = set(re.findall(r"fill\('([a-z_]+\.md)'", text))
+    assert named == {"cross_section.md", "conclusion.md", "critique.md",
+                     "polish.md", "evaluate.md"}
+    for prompt in named:
+        assert (POLISH_PROMPTS / prompt).exists(), prompt
+
+
+def test_polish_chain_writes_the_spec_artifacts():
+    text = source("polish_chain.js")
+    for artifact in ("verdict.json", "evaluation.json", "cross_check.json",
+                     "conclusion.md"):
+        assert artifact in text, artifact
+
+
+def test_polish_chain_gives_the_shrink_gate_a_baseline():
+    """`not_longer_than` needs a pre-polish copy to measure against; without
+    one the gate silently disappears — which is exactly how sra5's polish pass
+    grew a body by 1,933 bytes undetected."""
+    text = source("polish_chain.js")
+    assert "sections_prepolish" in text
+    assert "baseline_dir" in text
+    assert "shrink_gate_passed" in text
+    assert re.search(r"log\('shrink gate FAILED", text)
+
+
+def test_polish_chain_does_not_compute_the_implied_return():
+    """§15.3: the driver recalculates it and must not trust model arithmetic.
+    A workflow doing the sum here would be a second, competing source of a
+    number that appears on the front-page card."""
+    text = source("polish_chain.js")
+    code = "\n".join(line for line in text.splitlines()
+                     if not line.strip().startswith("//"))
+    assert "fair_value /" not in code
+    assert "current_price" not in code or "fair_value" not in code.split(
+        "current_price")[1][:200]
+    assert "driver recomputes" in text      # and the comment says whose it is
+
+
+def test_polish_chain_takes_the_same_args_as_the_write_wave():
+    """§15.2 lists one arg set for both scripts, so an orchestrator can build
+    it once."""
+    for name in EXPECTED:
+        destructure = re.search(r"const \{([^}]+)\} = args", source(name))
+        assert destructure, name
+        names = {n.strip() for n in destructure.group(1).split(",")}
+        assert {"ticker", "workdir", "report_date", "sections",
+                "char_caps"} <= names, name
+
+
+def test_polish_prompts_forbid_smoothing_a_genuine_tension():
+    """§18.3: polish preserves genuine analytical tensions. An editing instinct
+    removes them first, and they are the report's most useful content."""
+    polish = (POLISH_PROMPTS / "polish.md").read_text(encoding="utf-8")
+    cross = (POLISH_PROMPTS / "cross_section.md").read_text(encoding="utf-8")
+    assert "genuine_tension" in polish and "genuine_tension" in cross
+    assert re.search(r"[Dd]o not smooth away", polish)
+
+
+def test_polish_prompt_states_the_shrink_gate_in_words():
+    polish = (POLISH_PROMPTS / "polish.md").read_text(encoding="utf-8")
+    assert "not_longer_than" in polish
+    assert "WORDS" in polish
+    assert "1,933" in polish        # the regression the gate exists for
+
+
+def test_conclusion_prompt_requires_every_verdict_field():
+    """§15.3's field list is what the front-page card renders."""
+    from lib.render.assemble import VERDICT_FIELDS
+
+    body = (POLISH_PROMPTS / "conclusion.md").read_text(encoding="utf-8")
+    for field in VERDICT_FIELDS:
+        assert f'"{field}"' in body, field
+
+
+def test_conclusion_prompt_warns_that_the_driver_overwrites_the_arithmetic():
+    body = (POLISH_PROMPTS / "conclusion.md").read_text(encoding="utf-8")
+    assert "recalculates" in body
+    assert "implied_return_pct" in body
+
+
+def test_evaluate_prompt_scores_six_dimensions_with_spot_checks():
+    body = (POLISH_PROMPTS / "evaluate.md").read_text(encoding="utf-8")
+    for dimension in ("factual_accuracy", "completeness", "consistency",
+                      "analytical_depth", "actionability", "source_attribution"):
+        assert dimension in body, dimension
+    assert "overall_score" in body
+    assert "spot_checks" in body
+    assert "ten" in body
+
+
+def test_polish_prompts_do_no_independent_retrieval():
+    """Same rule as the writers (§15.1): a fact discovered now has no bronze id
+    and cannot survive assembly."""
+    text = source("polish_chain.js")
+    assert re.search(r"[Dd]o no independent retrieval", text)
