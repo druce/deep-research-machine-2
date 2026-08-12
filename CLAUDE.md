@@ -36,11 +36,17 @@ status (what actually exists today) lives in `docs/superpowers/plans/`, not here
 | `manifest T` / `show T ID` / `grep T PATTERN [...]` / `eval-retrieval T [...]` | retrieval |
 | `validate T` / `wiki-lint T` | fatal gate / advisory silver checks |
 | `questions T [...]` / `add-questions T ...` / `mark-answered T ...` / `invalidate T [--apply]` | research ledger |
+| `record-attempt T --question-hash H` / `drop-question T --question-hash H` | ledger transitions §19 omits — see below |
 | `wiki-log T --entry E` / `wiki-index T` / `mark-dirty T --section S` | wiki bookkeeping |
 | `charts T [--verdict]` / `assemble T` / `snapshot T` | report rendering |
 
 `migrate` (spec §26) is intentionally not implemented — approved deviation, no legacy corpora
 are being imported.
+
+`record-attempt` and `drop-question` are additions to §19's table, not contradictions of it:
+§20 defines `record_attempt` and `drop_question` as library functions but §19 lists no command
+reaching either, and §3 forbids a skill or subagent doing that bookkeeping itself. Every
+`research/questions.json` transition therefore has a CLI surface.
 
 Retired (do not reintroduce): `ingest`, `search`, `apply-tags`, `audit-page-citations`, `render`,
 the `sra-ingest` skill, the `sra-tagger` agent, `data/*/index/`, LanceDB, pyarrow, tiktoken.

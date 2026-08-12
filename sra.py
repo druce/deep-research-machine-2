@@ -45,8 +45,8 @@ from lib.provenance import (
     StructuredMeta, _reject_path_traversal, read_structured, resolve_artifact,
     resolve_source, write_derived)
 from lib.questions import (
-    DEFAULT_ORIGIN, STATUSES, add_questions, load_questions, mark_answered,
-    record_attempt)
+    DEFAULT_ORIGIN, STATUSES, add_questions, drop_question, load_questions,
+    mark_answered, record_attempt)
 from lib.sections import SECTION_IDS, load_sections
 from lib.statefile import (
     init_state, load_state, mark_section_dirty, record_derived, record_fetch,
@@ -497,6 +497,38 @@ def cmd_record_attempt(args: argparse.Namespace) -> int:
         return 1
     except KeyError as exc:
         print(f"record-attempt: {exc}", file=sys.stderr)
+        return 1
+
+    print(json.dumps(results[0] if len(results) == 1 else results, indent=2))
+    return 0
+
+
+def cmd_drop_question(args: argparse.Namespace) -> int:
+    """Mark questions explicitly out of scope or unanswerable (§14.1).
+
+    Same gap as `record-attempt`: §20 defines `drop_question` but §19's table
+    has no command reaching it, and only a synthesizer may drop a question —
+    which makes it model work whose bookkeeping still belongs to the driver
+    (§3). Without this the synthesizer would have to hand-edit the ledger.
+
+    `dropped` is always a decision. The ledger never infers it from silence.
+    """
+    resolved = _ledger_ticker(args)
+    if resolved is None:
+        return 1
+    _ticker, d = resolved
+
+    results: list[dict] = []
+    try:
+        with TickerLock(d, "drop-question", force=args.force_lock):
+            for qhash in args.question_hash:
+                entry = drop_question(d, qhash)
+                results.append({"hash": qhash, "status": entry["status"]})
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except KeyError as exc:
+        print(f"drop-question: {exc}", file=sys.stderr)
         return 1
 
     print(json.dumps(results[0] if len(results) == 1 else results, indent=2))
@@ -1121,6 +1153,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add("record-attempt", cmd_record_attempt, mutating=True)
     sp.add_argument("--question-hash", action="append", required=True,
                     help="question id whose dispatch returned no citable evidence")
+
+    sp = add("drop-question", cmd_drop_question, mutating=True)
+    sp.add_argument("--question-hash", action="append", required=True,
+                    help="question id the synthesizer ruled out of scope "
+                         "or unanswerable (repeatable)")
 
     sp = add("peers-candidates", cmd_peers_candidates, mutating=True)
     sp.add_argument("--peers", default=None,

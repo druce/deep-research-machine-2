@@ -239,6 +239,52 @@ def test_record_attempt_accepts_several_hashes(tmp_path: Path, capsys):
     assert [r["hash"] for r in out(capsys)] == [a, b]
 
 
+# --- drop-question ---------------------------------------------------------
+
+def test_drop_question_marks_it_dropped(tmp_path: Path, capsys):
+    """§14.1: only a synthesizer drops a question, and only as an explicit
+    decision. §20 defines `drop_question` but §19's table has no command
+    reaching it — this subcommand is that addition, on the same reasoning as
+    `record-attempt`: a skill may not hand-edit the ledger (§3)."""
+    d = _init(tmp_path)
+    run(tmp_path, "add-questions", "PANW", "--section", "valuation",
+        "--question", "out of scope?")
+    qhash = question_hash("valuation", "out of scope?")
+
+    capsys.readouterr()
+    assert run(tmp_path, "drop-question", "PANW", "--question-hash", qhash) == 0
+    assert out(capsys) == {"hash": qhash, "status": "dropped"}
+    assert [q["status"] for q in load_questions(d)] == ["dropped"]
+
+
+def test_dropped_questions_are_not_dispatchable(tmp_path: Path, capsys):
+    d = _init(tmp_path)
+    run(tmp_path, "add-questions", "PANW", "--section", "valuation",
+        "--question", "keep?", "--question", "drop?")
+    run(tmp_path, "drop-question", "PANW", "--question-hash",
+        question_hash("valuation", "drop?"))
+
+    from lib.questions import open_questions
+    assert [q["question"] for q in open_questions(d)] == ["keep?"]
+
+
+def test_drop_question_accepts_several_hashes(tmp_path: Path, capsys):
+    _init(tmp_path)
+    run(tmp_path, "add-questions", "PANW", "--section", "valuation",
+        "--question", "a?", "--question", "b?")
+    a, b = question_hash("valuation", "a?"), question_hash("valuation", "b?")
+    capsys.readouterr()
+    assert run(tmp_path, "drop-question", "PANW", "--question-hash", a,
+               "--question-hash", b) == 0
+    assert [r["hash"] for r in out(capsys)] == [a, b]
+
+
+def test_drop_question_on_an_unknown_hash_exits_1(tmp_path: Path):
+    _init(tmp_path)
+    assert run(tmp_path, "drop-question", "PANW",
+               "--question-hash", "deadbeef00") == 1
+
+
 # --- shared ----------------------------------------------------------------
 
 @pytest.mark.parametrize("command", [
@@ -246,6 +292,7 @@ def test_record_attempt_accepts_several_hashes(tmp_path: Path, capsys):
     ["add-questions", "PANW", "--section", "valuation", "--question", "q?"],
     ["mark-answered", "PANW", "--question-hash", "x", "--sources", "y"],
     ["record-attempt", "PANW", "--question-hash", "x"],
+    ["drop-question", "PANW", "--question-hash", "x"],
 ])
 def test_every_ledger_command_needs_an_initialized_ticker(tmp_path: Path, command):
     assert run(tmp_path, *command) == 1

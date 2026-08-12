@@ -25,10 +25,16 @@ from lib.provenance import MODEL_KINDS, SourceMeta
 
 ROOT = Path(__file__).resolve().parent.parent
 RESEARCHER = ROOT / ".claude" / "agents" / "sra-researcher.md"
+WRITER = ROOT / ".claude" / "agents" / "sra-writer.md"
+RESEARCH_SKILL = ROOT / ".claude" / "skills" / "sra-research" / "SKILL.md"
 
 
 def researcher_text() -> str:
     return RESEARCHER.read_text(encoding="utf-8")
+
+
+def research_skill_text() -> str:
+    return RESEARCH_SKILL.read_text(encoding="utf-8")
 
 
 def python_blocks(text: str) -> list[str]:
@@ -157,3 +163,108 @@ def test_researcher_carries_the_privilege_mitigations(pattern):
     these five sentences are the whole mitigation. Dropping one in an edit is
     exactly the regression worth failing a test over."""
     assert re.search(pattern, researcher_text(), re.I), pattern
+
+
+# --- the synthesizer agent -------------------------------------------------
+
+def test_writer_agent_exists_with_frontmatter():
+    post = frontmatter.load(WRITER)
+    assert post.metadata["name"] == "sra-writer"
+    assert post.metadata["description"].strip()
+
+
+def test_writer_has_exactly_the_tools_the_spec_gives_it():
+    """§21's agent table: Read, Write, Edit, Glob, Grep, Bash — Bash because
+    all ledger and wiki bookkeeping runs through `sra.py`. No web and no MCP:
+    the synthesizer writes from evidence already gathered, and a claim it
+    fetched itself is a claim no citation resolves to."""
+    tools = {t.strip() for t in frontmatter.load(WRITER).metadata["tools"].split(",")}
+    assert tools == {"Read", "Write", "Edit", "Glob", "Grep", "Bash"}
+
+
+def test_writer_never_cites_silver():
+    """§8.2/§1.2: a citation that terminates in an answer file makes model
+    output look like evidence."""
+    body = WRITER.read_text(encoding="utf-8")
+    assert re.search(r"[Nn]ever cite an answer file", body)
+    assert "derived/answers/" in body and ".urls.json" in body
+
+
+def test_writer_bookkeeps_through_the_driver():
+    """§3: a subagent that hand-edits questions.json or 00_index.md loses the
+    edit the next time the driver rewrites the file."""
+    body = WRITER.read_text(encoding="utf-8")
+    for command in ("mark-answered", "drop-question", "add-questions"):
+        assert command in body, command
+    named = named_subcommands(body)
+    assert named <= registered_subcommands(), \
+        f"unregistered: {sorted(named - registered_subcommands())}"
+
+
+# --- the research skill ----------------------------------------------------
+
+def test_research_skill_exists_with_frontmatter():
+    post = frontmatter.load(RESEARCH_SKILL)
+    assert post.metadata["name"] == "sra-research"
+    assert post.metadata["description"].strip()
+
+
+def test_every_sra_subcommand_the_research_skill_names_is_registered():
+    named = named_subcommands(research_skill_text())
+    registered = registered_subcommands()
+    assert named <= registered, f"unregistered: {sorted(named - registered)}"
+
+
+def test_research_skill_dispatches_only_agents_that_exist():
+    """A `subagent_type` naming a missing agent file fails mid-round."""
+    agents_dir = ROOT / ".claude" / "agents"
+    named = set(re.findall(r'subagent_type: "([a-z-]+)"', research_skill_text()))
+    assert named, "the skill must name the agent types it dispatches"
+    for agent in named:
+        assert (agents_dir / f"{agent}.md").exists(), agent
+
+
+def test_research_skill_runs_the_whole_loop():
+    """§14's five steps: select, fan out, harvest, synthesize, stop."""
+    body = research_skill_text()
+    for command in ("questions", "add-questions", "record-attempt",
+                    "fetch-urls", "manifest", "validate", "wiki-log"):
+        assert f"sra.py {command}" in body, command
+
+
+def test_research_skill_batches_through_the_driver():
+    """§3: batch size and concurrency are library constants — a skill that
+    grouped questions by hand would let them drift from `lib/research.py`."""
+    body = research_skill_text()
+    assert "batch_questions" in body
+    assert "waves" in body
+    assert "open_questions" in body
+
+
+def test_research_skill_dispatches_reopened_questions_too():
+    """`invalidate` reopens a question precisely so the next run re-answers it;
+    a skill that filtered on `--status open` alone would strand it forever."""
+    assert "reopened" in research_skill_text()
+
+
+def test_research_skill_keeps_the_answerer_out_of_the_ledger():
+    """§14.1: the answerer does not close questions, the synthesizer decides,
+    and the driver defers by counting. Three actors, no overlap."""
+    body = research_skill_text()
+    assert re.search(r"never closes a question|does not close", body, re.I)
+    assert re.search(r"only the synthesizer drops|only it marks", body, re.I)
+    assert "MAX_ATTEMPTS" in body
+
+
+def test_research_skill_harvests_before_it_synthesizes():
+    """§14 step 3: harvest is a BARRIER — a synthesizer that ran first would
+    have no bronze ids to cite."""
+    body = research_skill_text()
+    assert body.index("fetch-urls") < body.index("subagent_type: \"sra-writer\"")
+    assert re.search(r"barrier", body, re.I)
+
+
+def test_research_skill_forbids_citing_answers():
+    body = research_skill_text()
+    assert re.search(r"NEVER cite an answer file", body)
+    assert "cited_urls" in body and ".urls.json" in body
