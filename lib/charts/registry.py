@@ -25,7 +25,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from lib.charts import price, sankey
+from lib.charts import calendar, fundamentals, macro, peers, price, sankey
 from lib.charts.base import ChartResult
 
 
@@ -49,4 +49,16 @@ def select(renderers: dict[str, Renderer], *, verdict: bool) -> Iterator[str]:
 RENDERERS: dict[str, Renderer] = {
     price.CHART_NAME: Renderer(price.CHART_NAME, price.render_price_weekly),
     sankey.CHART_NAME: Renderer(sankey.CHART_NAME, sankey.render_income_sankey),
+    "revenue_growth": Renderer("revenue_growth", fundamentals.render_revenue_growth),
+    "margin_trends": Renderer("margin_trends", fundamentals.render_margin_trends),
+    "fcf_conversion": Renderer("fcf_conversion", fundamentals.render_fcf_conversion),
+    "forward_multiple_vs_history": Renderer("forward_multiple_vs_history",
+                                            fundamentals.render_forward_multiple),
+    "peer_scatter": Renderer("peer_scatter", peers.render_peer_scatter),
+    "peer_multiples": Renderer("peer_multiples", peers.render_peer_multiples),
+    "catalyst_calendar": Renderer("catalyst_calendar",
+                                  calendar.render_catalyst_calendar),
+    "macro_rates": Renderer("macro_rates", macro.render_macro_rates),
+    "macro_market_valuation": Renderer("macro_market_valuation",
+                                       macro.render_macro_market_valuation),
 }
