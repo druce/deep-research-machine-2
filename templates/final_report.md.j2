@@ -1,0 +1,308 @@
+{#-
+  The assembled report (spec §15.3), adapted from SRA5's final_report.md.j2.
+
+  Front matter is raw HTML on purpose: pandoc passes HTML blocks through
+  untouched, so the masthead / KPI row / chips reach both the .html and the
+  weasyprint .pdf without a custom writer.
+
+  Three rules when editing:
+   * Images use an EMPTY alt (`![](path)`). A non-empty alt makes pandoc emit a
+     <figcaption>, which duplicates every caption the template already writes.
+     lib/render/postprocess.py blanks any that slip in from a section draft.
+   * Numeric table columns get `---:` separators. postprocess.py additionally
+     detects and right-aligns numeric columns in the model-written body, so the
+     whole document is consistent.
+   * Body prose comes from reports/<run>/sections/*.md verbatim — every section
+     already opens with its own `## N. Title`, so this file never wraps them in
+     a heading of its own.
+-#}
+<style>
+@page {
+  @top-left    { content: "{{ company_name | replace('"', '') }} ({{ symbol }})"; }
+  @bottom-left { content: "Equity Research · {{ report_date }}"; }
+}
+</style>
+
+{#- Nothing in this HTML block may be indented four spaces or more: markdown
+    reads that as an indented code block even inside raw HTML, and the whole
+    masthead rendered as escaped source. Two spaces is the maximum step. -#}
+<div class="masthead">
+<div class="masthead-id">
+  <h1 class="masthead-co">{{ company_name }}<span class="masthead-tkr">{{ symbol }}</span></h1>
+  <div class="masthead-meta">Equity Research · {{ report_date }}{% if sector %} · {{ sector }}{% endif %}{% if industry %} · {{ industry }}{% endif %}</div>
+</div>
+{%- if verdict and verdict.rating %}
+<div class="masthead-verdict">
+  <span class="masthead-verdict-label">Rating</span>
+  <span class="masthead-verdict-value">{{ verdict.rating }}</span>
+{%- if verdict.fair_value is not none %}
+  <span class="masthead-verdict-sub">Fair value ${{ verdict.fair_value }}{% if verdict.horizon_months %} · {{ verdict.horizon_months }}-month{% endif %}</span>
+{%- endif %}
+</div>
+{%- endif %}
+</div>
+
+<div class="kpi-row">
+  <div class="kpi"><span class="kpi-label">Price</span><span class="kpi-value">${{ latest_price }}</span></div>
+  <div class="kpi"><span class="kpi-label">Market cap</span><span class="kpi-value">${{ market_cap }}</span></div>
+{%- if forward_pe and forward_pe != 'N/A' %}
+  <div class="kpi"><span class="kpi-label">Fwd P/E</span><span class="kpi-value">{{ forward_pe }}x</span></div>
+{%- elif trailing_pe and trailing_pe != 'N/A' %}
+  <div class="kpi"><span class="kpi-label">Trailing P/E</span><span class="kpi-value">{{ trailing_pe }}x</span></div>
+{%- endif %}
+{%- if targets and targets.mean %}
+  <div class="kpi"><span class="kpi-label">Target (mean)</span><span class="kpi-value">${{ targets.mean }}</span>
+{%- if targets.upside_pct_mean is not none %}<span class="kpi-delta {{ targets.upside_direction }}">{{ targets.upside_arrow }} {{ targets.upside_pct_mean }}%</span>{% endif %}</div>
+{%- endif %}
+{%- if next_earnings %}
+  <div class="kpi"><span class="kpi-label">Next earnings</span><span class="kpi-value">{{ next_earnings }}</span></div>
+{%- endif %}
+</div>
+
+<div class="toc">
+  <div class="toc-label">Contents</div>
+  <ol>
+    <li><a href="#investment-verdict">Investment Verdict</a></li>
+    <li><a href="#stock-chart">Stock Chart</a></li>
+    <li><a href="#technical-analysis-summary">Technical Analysis Summary</a></li>
+    <li><a href="#peer-comparison">Peer Comparison</a></li>
+{%- for entry in toc_sections %}
+    <li><span class="toc-n">{{ loop.index }}.</span><a href="#{{ entry.anchor }}">{{ entry.title }}</a></li>
+{%- endfor %}
+    <li><a href="#conclusion-investment-thesis">Conclusion &amp; Investment Thesis</a></li>
+{%- if chartbook %}
+    <li><a href="#chartbook">Chartbook</a></li>
+{%- endif %}
+    <li><a href="#references">References</a></li>
+    <li><a href="#sources-and-methodology">Sources and Methodology</a></li>
+  </ol>
+</div>
+
+{% if verdict %}
+## Investment Verdict
+
+::: {.verdict-card}
+| | |
+|---|---|
+| **Rating** | {{ verdict.rating or 'N/A' }}{% if verdict.conviction %} <span class="chip info">{{ verdict.conviction }} conviction</span>{% endif %} |
+| **Fair value** | {% if verdict.fair_value is not none %}${{ verdict.fair_value }}{% if verdict.horizon_months %} ({{ verdict.horizon_months }}-month){% endif %}{% else %}N/A{% endif %} |
+| **Implied return** | {% if verdict.implied_return_pct is not none %}<span class="chip {{ verdict.return_direction }}">{{ verdict.implied_return_pct }}%</span>{% else %}N/A{% endif %} |
+| **Vs. consensus** | {{ verdict.vs_consensus or 'N/A' }} |
+| **Method** | {{ verdict.valuation_method or 'N/A' }} |
+{% if verdict.base_case_probability is not none %}| **Base case probability** | {{ (verdict.base_case_probability * 100) | round(0) | int }}% |
+{% endif %}
+:::
+
+{# No trailing period on the lead-in: report.css promotes it to a block
+   uppercase kicker above the sentence, where "THESIS." reads as a typo.
+   Keep this comment in the plain delimiter form. The whitespace-stripping
+   variant ate the blank line above and fused the fence below with the
+   verdict-card's closing colons into a six-colon opener, which nested every
+   later block inside the card. And never write a nested comment delimiter in
+   the text: Jinja comments do not nest, so it closes the comment early and
+   spills the rest of this paragraph into the report body. #}
+{% if verdict.thesis %}::: {.callout}
+**Thesis** {{ verdict.thesis }}
+:::
+{% endif %}
+{% if verdict.key_risk %}::: {.callout .caution}
+**Key risk** {{ verdict.key_risk }}
+:::
+{% endif %}
+
+*Rating, fair value and probabilities are the analyst's own assumptions, not company guidance or
+sell-side consensus. See the Conclusion for the reasoning and the tests that would falsify it.*
+{% endif %}
+
+---
+
+## Stock Chart
+
+{% if chart_path %}
+::: {.figure}
+![]({{ chart_path }})
+
+<span class="caption">{{ chart_caption }}</span>
+:::
+{% else %}
+*Stock chart not available*
+{% endif %}
+
+---
+
+<div style="page-break-after: always;"></div>
+
+## Technical Analysis Summary
+
+{% if technical_analysis %}
+
+| Indicator | Value | Signal |
+|:----------|------:|:-------|
+| **20-Day SMA** | {% if technical_analysis.indicators.sma_20 is not none %}${{ technical_analysis.indicators.sma_20 | round(2) }}{% else %}N/A{% endif %} | {% if technical_analysis.trend_signals.above_20sma %}<span class="chip pos">Bullish</span>{% else %}<span class="chip neg">Bearish</span>{% endif %} |
+| **50-Day SMA** | {% if technical_analysis.indicators.sma_50 is not none %}${{ technical_analysis.indicators.sma_50 | round(2) }}{% else %}N/A{% endif %} | {% if technical_analysis.trend_signals.above_50sma %}<span class="chip pos">Bullish</span>{% else %}<span class="chip neg">Bearish</span>{% endif %} |
+| **200-Day SMA** | {% if technical_analysis.indicators.sma_200 is not none %}${{ technical_analysis.indicators.sma_200 | round(2) }}{% else %}N/A{% endif %} | {% if technical_analysis.indicators.sma_200 is none %}<span class="chip flat">No data</span>{% elif technical_analysis.trend_signals.above_200sma %}<span class="chip pos">Bullish</span>{% else %}<span class="chip neg">Bearish</span>{% endif %} |
+| **RSI (14)** | {% if technical_analysis.indicators.rsi_14 is not none %}{{ technical_analysis.indicators.rsi_14 | round(2) }}{% else %}N/A{% endif %} | {% if technical_analysis.indicators.rsi_14 is not none %}{% if technical_analysis.indicators.rsi_14 > 70 %}<span class="chip caution">Overbought</span>{% elif technical_analysis.indicators.rsi_14 < 30 %}<span class="chip caution">Oversold</span>{% else %}<span class="chip flat">Neutral</span>{% endif %}{% else %}<span class="chip flat">No data</span>{% endif %} |
+| **MACD** | {% if technical_analysis.indicators.macd is not none %}{{ technical_analysis.indicators.macd | round(2) }}{% else %}N/A{% endif %} | {% if technical_analysis.trend_signals.macd_bullish %}<span class="chip pos">Bullish</span>{% else %}<span class="chip neg">Bearish</span>{% endif %} |
+| **ATR (14)** | {% if technical_analysis.indicators.atr_14 is not none %}${{ technical_analysis.indicators.atr_14 | round(2) }}{% else %}N/A{% endif %} | <span class="chip flat">Volatility</span> |
+| **Avg volume (20d)** | {% if technical_analysis.indicators.avg_volume_20d is not none %}{{ technical_analysis.indicators.avg_volume_20d | format_number }}{% else %}N/A{% endif %} | <span class="chip flat">Liquidity</span> |
+
+**Trend status**
+
+{% if technical_analysis.indicators.sma_200 is none %}
+- Long-term trend: <span class="chip flat">No data</span> — insufficient trading history for a 200-day SMA
+- Golden / death cross: <span class="chip flat">No data</span> — requires a 200-day SMA
+{% else %}
+{% if technical_analysis.trend_signals.above_200sma %}
+- Long-term trend: <span class="chip pos">Bullish</span> — price above the 200-day SMA
+{% else %}
+- Long-term trend: <span class="chip neg">Bearish</span> — price below the 200-day SMA
+{% endif %}
+{% if technical_analysis.trend_signals.sma_50_200_bullish %}
+- Golden cross: <span class="chip pos">Active</span> — 50-day SMA above the 200-day SMA
+{% else %}
+- Death cross: <span class="chip neg">Present</span> — 50-day SMA below the 200-day SMA
+{% endif %}
+{% endif %}
+
+{% else %}
+*Technical analysis data not available*
+{% endif %}
+
+---
+
+## Peer Comparison
+
+{% if peers %}
+::: {.peer-table}
+| Symbol | Name | Price | Market Cap | Fwd P/E | Revenue TTM | Op. Margin | Rev. Growth |
+|:-------|:-----|------:|-----------:|--------:|------------:|-----------:|------------:|
+{%- for peer in peers %}
+| {% if peer.is_subject %}**{{ peer.symbol }}**{% else %}{{ peer.symbol }}{% endif %} | {% if peer.is_subject %}**{{ peer.name }}**{% else %}{{ peer.name }}{% endif %} | ${{ peer.price }} | ${{ peer.market_cap }} | {{ peer.forward_pe }} | ${{ peer.revenue_ttm }} | {{ peer.operating_margin }} | {{ peer.revenue_growth }} |
+{%- endfor %}
+:::
+
+<span class="caption">{{ peer_caption }}</span>
+
+{% else %}
+*Peer comparison data not available*
+{% endif %}
+
+{% if targets and targets.mean %}
+### Sell-side price targets
+
+| Measure | Target | Implied vs. ${{ latest_price }} |
+|:--------|-------:|-------------------------------:|
+| Low | ${{ targets.low }} | {% if targets.upside_pct_low is not none %}<span class="chip {{ 'pos' if targets.upside_pct_low > 0 else 'neg' }}">{{ targets.upside_pct_low }}%</span>{% else %}N/A{% endif %} |
+| Mean | ${{ targets.mean }} | {% if targets.upside_pct_mean is not none %}<span class="chip {{ 'pos' if targets.upside_pct_mean > 0 else 'neg' }}">{{ targets.upside_pct_mean }}%</span>{% else %}N/A{% endif %} |
+| Median | ${{ targets.median }} | {% if targets.upside_pct_median is not none %}<span class="chip {{ 'pos' if targets.upside_pct_median > 0 else 'neg' }}">{{ targets.upside_pct_median }}%</span>{% else %}N/A{% endif %} |
+| High | ${{ targets.high }} | {% if targets.upside_pct_high is not none %}<span class="chip {{ 'pos' if targets.upside_pct_high > 0 else 'neg' }}">{{ targets.upside_pct_high }}%</span>{% else %}N/A{% endif %} |
+
+<span class="caption">Sell-side consensus, not the analyst's own fair value. See the Investment Verdict for that.</span>
+{% endif %}
+
+<div style="page-break-after: always;"></div>
+
+### Income Statement Flow
+
+{% if income_statement_sankey_path %}
+::: {.figure}
+![]({{ income_statement_sankey_path }})
+
+<span class="caption">{{ sankey_caption }}</span>
+:::
+{% else %}
+*Income statement visualization not available*
+{% endif %}
+
+---
+
+<div style="page-break-after: always;"></div>
+
+{{ body }}
+
+---
+
+<div style="page-break-after: always;"></div>
+
+{{ conclusion }}
+
+{% if chartbook %}
+
+---
+
+<div style="page-break-after: always;"></div>
+
+## Chartbook
+
+{% for exhibit in chartbook %}
+::: {.figure}
+![]({{ exhibit.path }})
+
+<span class="caption">Exhibit {{ loop.index }} — {{ exhibit.caption }}</span>
+:::
+
+{% endfor %}
+{% endif %}
+
+---
+
+<div style="page-break-after: always;"></div>
+
+{{ references }}
+
+---
+
+## Sources and Methodology
+
+### How this report was produced
+
+Evidence is fetched into a per-ticker knowledge base and kept immutable: every source document
+carries the URL, tool and timestamp that produced it, and a refreshed document supersedes its
+predecessor rather than overwriting it. Research runs as a question ledger — open questions are
+answered from that corpus, the web and market-data tools, the URLs those answers relied on are
+downloaded into the corpus in turn, and the answers are synthesized into wiki notes that cite
+source documents by id. Seven section writers draft from those notes, an adversarial critic and a
+rewrite pass follow each draft, and a cross-section pass reconciles figures before the conclusion
+is written. Assembly is deterministic: it renumbers the citations, generates the reference list
+below, and renders the document. No figure in this report was entered by hand, and every citation
+resolves to a fetched source document — a claim supported only by model output is not citable and
+does not appear.
+
+### Data sources
+
+| Source | Used for |
+|:---|:---|
+| SEC EDGAR (10-K, 10-Q, 8-K) | Authoritative reported figures, risk factors, MD&A, legal proceedings, market-risk disclosures |
+| yfinance | Financial statements, ratios, peer metrics, consensus estimates and revisions, price targets, event calendar |
+| Financial Modeling Prep | Peer identification, institutional holders, supplementary market data |
+| FRED and multpl | Macro rates, inflation, and market-level valuation series |
+| TA-Lib | Technical indicators |
+| Web and MCP research tools | Competitive, supply-chain and news context, each harvested to its origin document |
+| Wikipedia | Background and corporate history |
+
+### Reading the numbers
+
+- **Reported** figures are actuals the company has filed or announced, and take precedence when
+  sources disagree.
+- **Guidance** is management's own forecast, attributed to its venue and date.
+- **Consensus** is the sell-side aggregate, with its provider and as-of date.
+- **Assumptions** are the analyst's own, including the fair value and any scenario probabilities.
+
+Where two sources disagree on a figure, the SEC filing value is used and the discrepancy is noted.
+A value a provider did not report is shown as absent, never as zero.
+
+### Glossary
+
+**CAGR** compound annual growth rate · **DCF** discounted cash flow · **EV/EBITDA** enterprise value to
+earnings before interest, tax, depreciation and amortisation · **FCF** free cash flow, operating cash
+flow less capital expenditure · **NOPAT** net operating profit after tax · **P/E** price to earnings ·
+**ROIC** return on invested capital, NOPAT divided by invested capital · **SBC** stock-based
+compensation · **SOTP** sum of the parts · **TAM / SAM** total / serviceable addressable market ·
+**TTM** trailing twelve months · **WACC** weighted average cost of capital · **bp** basis point,
+one hundredth of a percentage point.
+
+**Generated:** {{ report_date }}
+
+---
+
+*This report is for informational purposes only and does not constitute investment advice. Conduct your own due diligence and consult financial professionals before making investment decisions. Past performance does not guarantee future results.*

@@ -1,0 +1,631 @@
+<style>
+/* ==========================================================================
+   Equity Research Report — institutional styling
+   Included into pandoc's <head> via --include-in-header (lib/render/assemble.py).
+   Rendered to HTML by pandoc and to PDF by weasyprint from that same HTML.
+
+   Palette is computed, not chosen — every value below carries a measured
+   WCAG contrast or CVD delta-E. See sra6-spec.md §17.1 (and lib/charts/base.py,
+   which carries the same values for the exhibits) before editing: the obvious
+   "institutional navy" series palette fails the validator.
+
+   Per-report values (the running header text) cannot live here — this file is
+   static and shared. final_report.md.j2 injects a small @page override with
+   the company name in it.
+   ========================================================================== */
+
+:root {
+  /* Chrome and semantic ink — all clear WCAG AA (4.5:1) on white, on the
+     panel ground and on a shaded zebra row. */
+  --navy: #0f2942;      /* header ground; white text on it measures 14.83 */
+  --ink: #23282f;       /* body text — 14.83 on white, 13.46 on zebra */
+  --muted: #5b636e;     /* uppercase micro-labels — 6.08 / 5.52 */
+  --pos: #006300;       /* 7.54 / 6.84 */
+  --neg: #b3261e;       /* 6.54 / 5.93 */
+  --caution: #8a5a00;   /* 5.93 / 5.38 — #b26a00 fails at 3.85 on zebra */
+  --info: #1a5fb4;      /* 6.29 / 5.71 */
+
+  /* Categorical series slots — validated all-pairs on white.
+     Four is the cap; a fifth series folds to "Other". */
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;        /* 2.82 vs white — needs direct labels, not a legend */
+  --s4: #4a3aa7;
+
+  /* Surfaces */
+  --panel: #f7f8fa;
+  --zebra: #f2f4f7;
+  --rule: #dde1e6;
+  --hairline: rgba(15, 41, 66, .10);
+
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+
+  /* Prose measure. The container is sized for the widest exhibit (the 8-column
+     peer table), which is far too wide for running text: at 980px/14px the body
+     measured 135 characters per line, roughly double the legible cap. Exhibits
+     keep the full container; prose is capped here.
+
+     Expressed in `ch` — the width of "0" — so it tracks the font size. Note
+     that ch overstates the real average character: in this stack "0" is .63em
+     while mixed lower-case text averages ~.51em, so 64ch measures out at about
+     78 actual characters per line. @media print raises it (see below). */
+  --measure: 64ch;
+}
+
+/* --------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
+
+body {
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: #fff;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 2em 1.5em;
+}
+
+/* Running text is capped at the measure; tables, figures and the KPI row are
+   deliberately excluded and span the full container. The prose column is
+   left-aligned against the exhibits rather than centred between them, so every
+   block in the document shares one left edge. */
+p, ul, ol, blockquote, .callout, .caption, figcaption, .toc {
+  max-width: var(--measure);
+}
+/* Table cells inherit the cap from `p` when a writer puts a paragraph in a
+   cell; inside a table the column width is the constraint, not the measure. */
+td p, th p, td ul, td ol { max-width: none; }
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 1.6em 0 .5em;
+  color: var(--navy);
+}
+h1 { font-size: 30px; }
+h2 {
+  font-size: 21px;
+  border-bottom: 2px solid var(--navy);
+  padding-bottom: .25em;
+  margin-top: 2em;
+}
+h3 { font-size: 17px; }
+h4 { font-size: 15px; color: var(--ink); }
+
+p { margin: 0 0 .9em; }
+
+a { color: var(--info); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+strong { font-weight: 600; }
+em { color: inherit; }
+
+ul, ol { padding-left: 1.4em; margin: 0 0 .9em; }
+li + li { margin-top: .25em; }
+
+hr {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 2em 0;
+}
+
+/* --------------------------------------------------------------------------
+   Masthead — replaces the H1 + run-on bold metadata paragraph
+   -------------------------------------------------------------------------- */
+
+.masthead {
+  background: var(--navy);
+  color: #fff;
+  padding: 18px 22px;
+  border-radius: 6px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.masthead-id { min-width: 0; }
+/* Marked up as a level-1 heading so the document keeps a single top-level
+   heading; the pandoc title block that used to supply one is suppressed via
+   --metadata pagetitle. */
+h1.masthead-co {
+  display: block;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #fff;
+  margin: 0;
+}
+.masthead-tkr {
+  display: inline-block;
+  margin-left: 10px;
+  vertical-align: middle;
+  padding: 1px 7px;
+  border: 1px solid rgba(255, 255, 255, .45);
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .06em;
+}
+.masthead-meta {
+  margin-top: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: rgba(255, 255, 255, .78);
+}
+
+/* The rating is the conclusion of the document and belongs in its first 200
+   pixels, not four hundred lines down in the verdict table. Right-aligned in
+   the masthead, which is the convention every sell-side note follows. */
+.masthead-verdict {
+  flex: 0 0 auto;
+  text-align: right;
+  border-left: 1px solid rgba(255, 255, 255, .22);
+  padding-left: 22px;
+}
+.masthead-verdict-label,
+.masthead-verdict-sub {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: rgba(255, 255, 255, .72);
+}
+.masthead-verdict-value {
+  display: block;
+  font-size: 25px;
+  font-weight: 600;
+  line-height: 1.1;
+  margin: 2px 0 3px;
+  color: #fff;
+}
+.masthead-verdict-sub { letter-spacing: .05em; }
+
+/* --------------------------------------------------------------------------
+   KPI row — the highest-value real estate in the document
+   -------------------------------------------------------------------------- */
+
+.kpi-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 20px;
+}
+.kpi {
+  /* min-width has to admit five cards across the *print* text column (~695px
+     at Letter with our margins), or "Next earnings" wraps alone onto a second
+     row: 5 x 106 + 4 x 8 gaps = 562px. Cards then flex up to fill. */
+  flex: 1 1 0;
+  min-width: 106px;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 9px 12px 10px;
+}
+.kpi-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+.kpi-value {
+  display: block;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.15;
+  margin-top: 3px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.kpi-delta {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 1px;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-delta.pos { color: var(--pos); }
+.kpi-delta.neg { color: var(--neg); }
+.kpi-delta.flat { color: var(--muted); }
+
+/* --------------------------------------------------------------------------
+   Tables — horizontal rules only, tabular figures, no spreadsheet grid.
+   Numeric right-alignment arrives as pandoc inline styles: render_final.py
+   rewrites numeric separator rows to `---:` before conversion, which beats
+   any class selector we could write here.
+   -------------------------------------------------------------------------- */
+
+table {
+  /* Pandoc's --standalone template ships its own stylesheet with
+     `table { display: block; overflow-x: auto }`. A table with display:block is
+     a block box wrapping an anonymous shrink-to-fit table, so `width: 100%`
+     never applies — not even with !important — and narrow tables rendered at
+     ~35% of the text column. This stylesheet is included after pandoc's, so
+     restoring display:table here wins on source order. */
+  display: table;
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0 1.4em;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pandoc emits a <colgroup> whose percentages are derived from the *markdown
+   source* character widths — for a writer's "|---|---|---|" that is a flat 20%
+   per column, which starves a long label column and squeezes the table off
+   full width in weasyprint. Discard them and let content size the columns.
+   .peer-table sets its own widths below and is unaffected. */
+col { width: auto !important; }
+th, td {
+  /* border-box so the percentage column widths below include cell padding.
+     Under content-box, 8 columns x 20px of padding pushed the peer table past
+     the page edge and clipped its last column. */
+  box-sizing: border-box;
+  border: none;
+  border-bottom: 1px solid var(--rule);
+  padding: 7px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+/* Default header: a rule-bound band, not a filled one. A solid navy block
+   behind each of ~15 header rows put more ink on the page than the data it
+   labelled; the classic research treatment is uppercase navy text between a
+   heavy top rule and a light bottom rule. The filled band is reserved below
+   for the two tables that carry the most weight. */
+thead th {
+  background: none;
+  color: var(--navy);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  vertical-align: bottom;
+  border-top: 1.5px solid var(--navy);
+  border-bottom: 1px solid var(--navy);
+}
+tbody tr:nth-child(even) { background: var(--zebra); }
+tbody tr:last-child td { border-bottom: 1px solid var(--navy); }
+
+/* The two tables that get the filled band: the peer set and the scenario
+   matrix. Both are read as a block rather than scanned line by line, and both
+   are the destination of a cross-reference from the body text. */
+.peer-table thead th,
+.scenario thead th {
+  background: var(--navy);
+  color: #fff;
+  border-top: none;
+  border-bottom: none;
+}
+
+/* The subject company is always the first body row of the peer table. Bracketed
+   by navy hairlines and tinted, rather than carrying a left stripe: the rules
+   read as "this row is the reference line" instead of as a decorative accent,
+   and they survive the row landing on a zebra shade. */
+.peer-table tbody tr:first-child {
+  background: #eaf1fa;
+  font-weight: 600;
+}
+.peer-table tbody tr:first-child td {
+  border-top: 1px solid var(--navy);
+  border-bottom: 1px solid var(--navy);
+}
+/* Fixed layout so a long peer name cannot triple the row height and destroy
+   the horizontal scan. render_final.py also strips corporate suffixes
+   ("Lam Research Corporation" -> "Lam Research") at the source. */
+.peer-table table { table-layout: fixed; }
+/* Tighter gutters than the default table: eight columns leave little room, and
+   under border-box every pixel of padding is taken out of the content box. */
+.peer-table th, .peer-table td { padding: 7px 6px; }
+.peer-table th:nth-child(1), .peer-table td:nth-child(1) { width: 12%; white-space: nowrap; }
+.peer-table th:nth-child(2), .peer-table td:nth-child(2) { width: 20%; overflow-wrap: anywhere; }
+.peer-table th:nth-child(n+3), .peer-table td:nth-child(n+3) { width: 11.333%; }
+
+/* Two-column label/value tables (the verdict card) read better without a
+   header row taking up a navy band. Bounded as an actual card: the rating and
+   fair value are the conclusion of the document, and at full container width
+   the "Method" cell ran to ~100 characters per line. */
+.verdict-card {
+  max-width: var(--measure);
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 4px 14px 6px;
+  margin: 1em 0 1.4em;
+}
+.verdict-card table { margin: 0; background: none; }
+.verdict-card thead { display: none; }
+.verdict-card tbody tr:nth-child(even) { background: none; }
+.verdict-card tbody tr:last-child td { border-bottom: none; }
+.verdict-card td { padding: 7px 0; }
+.verdict-card td:first-child {
+  width: 34%;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------------------
+   Scenario matrix — bear / base / bull carried as columns.
+
+   The base case is the column the price target anchors to, so it is marked as
+   the reference column the way the peer table marks the subject row. Which
+   column holds the base case depends on the order the section writer chose, so
+   render_final.py detects the header row and adds `.scenario .base-N`.
+   -------------------------------------------------------------------------- */
+
+.scenario table { table-layout: fixed; }
+.scenario th:first-child, .scenario td:first-child { width: 31%; }
+/* Writers head the row-label column with an empty cell, which leaves a blank
+   notch in the filled band. Label it rather than ask them to remember. */
+.scenario thead th:first-child:empty::before { content: "Scenario"; }
+
+.scenario.base-2 tbody td:nth-child(2),
+.scenario.base-3 tbody td:nth-child(3),
+.scenario.base-4 tbody td:nth-child(4) {
+  background: #eaf1fa;
+  font-weight: 600;
+  border-left: 1px solid var(--navy);
+  border-right: 1px solid var(--navy);
+}
+/* Carries the column edge up into the filled header band, where a navy rule on
+   navy would be invisible. */
+.scenario.base-2 thead th:nth-child(2),
+.scenario.base-3 thead th:nth-child(3),
+.scenario.base-4 thead th:nth-child(4) {
+  border-bottom: 3px solid #eaf1fa;
+}
+
+/* --------------------------------------------------------------------------
+   Signed figures in tables — green up, red down, on tabular figures.
+   Applied by render_final.py to cells that are nothing but a signed number, so
+   a scenario row reading "-48% / +7% / +84%" carries its direction without a
+   chip around every value. The sign character is the redundant channel that
+   keeps this legible in grayscale.
+   -------------------------------------------------------------------------- */
+
+.num { font-variant-numeric: tabular-nums; font-weight: 600; }
+.num.pos { color: var(--pos); }
+.num.neg { color: var(--neg); }
+
+/* --------------------------------------------------------------------------
+   Contents — the document runs past 30 pages and 60 headings.
+   -------------------------------------------------------------------------- */
+
+.toc {
+  border-top: 1.5px solid var(--navy);
+  border-bottom: 1px solid var(--navy);
+  padding: 10px 0 12px;
+  margin: 0 0 1.8em;
+  columns: 2;
+  column-gap: 32px;
+}
+.toc-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  column-span: all;
+  margin-bottom: 6px;
+}
+.toc ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+}
+.toc li { margin: 0 0 3px; break-inside: avoid; }
+.toc a { color: var(--ink); }
+.toc a:hover { color: var(--info); }
+.toc .toc-n {
+  display: inline-block;
+  width: 1.5em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   Status chip — replaces every ✅/❌/⚪ emoji.
+   Colour never travels alone: the chip always carries its word, so the
+   distinction survives grayscale and forced-colors.
+   -------------------------------------------------------------------------- */
+
+.chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+.chip.pos { color: var(--pos); background: rgba(0, 99, 0, .10); }
+.chip.neg { color: var(--neg); background: rgba(179, 38, 30, .10); }
+.chip.caution { color: var(--caution); background: rgba(138, 90, 0, .10); }
+.chip.info { color: var(--info); background: rgba(26, 95, 180, .10); }
+.chip.flat { color: var(--muted); background: rgba(91, 99, 110, .10); }
+
+/* --------------------------------------------------------------------------
+   Callout — for tension and verdict statements
+   -------------------------------------------------------------------------- */
+
+/* A closed panel with a weighted top rule, not a left stripe. The colour states
+   the register (informational / caution) along the full width of the block
+   instead of as an accent bar, and the run-in "Thesis." / "Key risk." lead-in
+   the template writes is promoted to a proper uppercase kicker. */
+.callout {
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-top: 2px solid var(--info);
+  border-radius: 4px;
+  padding: 11px 14px 12px;
+  margin: 1.2em 0;
+}
+.callout.caution { border-top-color: var(--caution); }
+.callout p { max-width: none; }
+.callout p:last-child { margin-bottom: 0; }
+.callout p:first-child > strong:first-child {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--info);
+  margin-bottom: 4px;
+}
+.callout.caution p:first-child > strong:first-child { color: var(--caution); }
+
+blockquote {
+  margin: 1.2em 0;
+  padding: 10px 14px;
+  color: var(--ink);
+  background: var(--panel);
+  border-left: 1px solid var(--rule);
+}
+blockquote p:last-child { margin-bottom: 0; }
+
+/* --------------------------------------------------------------------------
+   Figures — the template writes its own italic caption, so pandoc's alt-text
+   figcaption is suppressed (see final_report.md.j2: images use empty alt).
+   -------------------------------------------------------------------------- */
+
+img { max-width: 100%; height: auto; }
+figure { margin: 1.2em 0; }
+
+/* Exhibits span the container, not the prose measure. Pandoc wraps a lone image
+   in a <p>, which would otherwise inherit the cap and shrink every chart to
+   two-thirds width; final_report.md.j2 wraps each one in `::: {.figure}`. The
+   caption keeps the measure — it is prose. */
+.figure { margin: 1.2em 0; }
+.figure p { max-width: none; margin: 0; }
+.figure .caption { max-width: var(--measure); }
+/* Belt and braces for any image the section writers place directly in the body.
+   weasyprint may not support :has, which is why the fenced div above carries
+   the two figures the template controls. */
+p:has(> img:only-child) { max-width: none; }
+figcaption {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: .4em;
+}
+.caption {
+  display: block;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--muted);
+  margin: -.4em 0 1.4em;
+}
+
+/* --------------------------------------------------------------------------
+   Code
+   -------------------------------------------------------------------------- */
+
+code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  background: rgba(27, 31, 35, .05);
+  padding: .15em .35em;
+  border-radius: 3px;
+  font-size: 85%;
+}
+pre {
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+  line-height: 1.45;
+}
+pre code { background: none; padding: 0; }
+
+/* --------------------------------------------------------------------------
+   Print / paged media (weasyprint)
+
+   Verified on weasyprint 68.1: margin boxes DO paint their background, and
+   `thead { display: table-header-group }` DOES repeat headers across breaks.
+   The @top-* content strings are per-report and are supplied by an @page
+   override that final_report.md.j2 injects.
+   -------------------------------------------------------------------------- */
+
+@page {
+  size: Letter;
+  margin: 20mm 16mm 16mm;
+  /* The margin box paints its background across the whole 20mm top margin, which
+     put a 20mm slab of navy on every page and left the body text abutting it.
+     `height` on the box bounds the band and leaves the remainder white. */
+
+  /* One full-width box, not a left/right pair. A margin box whose `content`
+     computes to nothing is not generated at all, so an empty @top-center left
+     a white gap in the middle of the band; `width: 100%` on a single box gives
+     a continuous rule edge to edge. The report date therefore lives in the
+     footer rather than opposite the company name. */
+  @top-left {
+    width: 100%;
+    height: 9mm;
+    background: #0f2942;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 8pt;
+    letter-spacing: .04em;
+    /* `middle` centres the text in the 9mm band. `top` moves only the text, not
+       the box: weasyprint keeps the box itself bottom-aligned in the margin
+       area, so the band always sits directly above the text column. */
+    vertical-align: middle;
+    padding: 0 4mm;
+  }
+  @bottom-left {
+    color: #5b636e;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 8pt;
+  }
+  @bottom-right {
+    content: counter(page) " / " counter(pages);
+    color: #5b636e;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 8pt;
+  }
+}
+
+/* The masthead is the cover; it does not need the running header above it. */
+@page :first {
+  @top-left { content: ""; background: none; }
+}
+
+@media print {
+  /* Looser than the screen measure on purpose. The Letter text column is 184mm;
+     the screen's 64ch lands at ~142mm there and leaves a 42mm empty gutter down
+     every page, which reads as an unfinished layout rather than a margin. 76ch
+     keeps the gutter to ~15mm and still cuts the line from ~101 characters to
+     ~93. Tables and figures continue to use the full column. */
+  :root { --measure: 76ch; }
+  body { max-width: none; padding: 0; font-size: 10pt; }
+  h2 { font-size: 15pt; }
+  h3 { font-size: 12.5pt; }
+  table { font-size: 9pt; }
+  /* 14pt, not 17pt: a four-figure price ("$1582.95") must fit a five-card row. */
+  .kpi-value { font-size: 14pt; }
+  .kpi { padding: 8px 9px; }
+}
+
+/* Repeat table headers across page breaks and keep atomic blocks whole. */
+thead { display: table-header-group; }
+tfoot { display: table-footer-group; }
+tr { break-inside: avoid; }
+.kpi, .callout, .masthead, figure { break-inside: avoid; }
+h1, h2, h3, h4 { break-after: avoid; }
+
+/* --------------------------------------------------------------------------
+   Forced-colors / grayscale safety net: chips keep a visible boundary once
+   the background wash is stripped.
+   -------------------------------------------------------------------------- */
+
+@media (forced-colors: active) {
+  .chip { border: 1px solid currentColor; }
+  .peer-table tbody tr:first-child { outline: 2px solid currentColor; }
+}
+</style>

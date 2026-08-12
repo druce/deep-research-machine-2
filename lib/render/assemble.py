@@ -20,8 +20,16 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
+
+from lib.render.postprocess import format_number, postprocess
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+TEMPLATES_DIR = REPO_ROOT / "templates"
+TEMPLATE_NAME = "final_report.md.j2"
+CSS_NAME = "report.css"
 
 VERDICT_NAME = "verdict.json"
 
@@ -149,3 +157,79 @@ def _write_atomic(path: Path, payload: dict) -> None:
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
         raise
+
+
+# --- render chain (§15.3) -------------------------------------------------
+#
+# markdown -> pandoc -> HTML -> weasyprint -> PDF. Each step is a separate
+# function returning an error string rather than raising: §22.3 makes
+# `validate` the fatal gate, and a missing Pango on one machine should degrade
+# the deliverable, not lose the assembled markdown that is already on disk.
+
+
+def render_markdown(variables: dict, template_path: Path | None = None) -> str:
+    """Render the report template, then apply the markdown fix-ups (§15.3).
+
+    The fix-ups run here rather than in the caller because they are part of
+    what "rendered markdown" means: pandoc reads alignment and alt text
+    structurally, and a caller that forgot the pass would ship a report whose
+    numeric columns rag left.
+    """
+    from jinja2 import Environment, FileSystemLoader
+
+    path = template_path or TEMPLATES_DIR / TEMPLATE_NAME
+    env = Environment(loader=FileSystemLoader(str(path.parent)),
+                      keep_trailing_newline=True)
+    env.filters["format_number"] = format_number
+    return postprocess(env.get_template(path.name).render(**variables))
+
+
+def to_html(md_path: Path, html_path: Path, *, pagetitle: str,
+            css_path: Path | None = None) -> str | None:
+    """Convert markdown to standalone HTML with pandoc. Returns an error
+    string, or `None` on success.
+
+    `pagetitle` sets `<title>` only. Pandoc's `title` metadata would
+    additionally emit an `<h1 class="title">` block, which collides with the
+    template's own masthead and gives every report two H1s.
+    """
+    css = css_path if css_path is not None else TEMPLATES_DIR / CSS_NAME
+    cmd = ["pandoc", md_path.name, "-o", html_path.name, "--standalone",
+           "--metadata", f"pagetitle={pagetitle}"]
+    if css.exists():
+        cmd += ["--include-in-header", str(css)]
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True,
+                       cwd=str(md_path.parent))
+    except FileNotFoundError:
+        return "pandoc not found on PATH (macOS: brew install pandoc)"
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.decode(errors="replace").strip()[:800]
+        return f"pandoc HTML conversion failed: {detail}"
+    return None
+
+
+def to_pdf(html_path: Path, pdf_path: Path) -> str | None:
+    """Convert the HTML to PDF with weasyprint. Returns an error string, or
+    `None` on success.
+
+    `base_url` is the HTML's own directory so relative chart paths resolve.
+    """
+    # weasyprint loads GLib/Pango through cffi; on macOS the Homebrew dylibs
+    # are not on the default search path.
+    brew_lib = "/opt/homebrew/lib"
+    if Path(brew_lib).is_dir():
+        existing = os.environ.get("DYLD_LIBRARY_PATH", "")
+        if brew_lib not in existing.split(":"):
+            os.environ["DYLD_LIBRARY_PATH"] = (
+                f"{brew_lib}:{existing}" if existing else brew_lib)
+    try:
+        from weasyprint import HTML
+
+        HTML(filename=str(html_path),
+             base_url=str(html_path.parent)).write_pdf(str(pdf_path))
+    except Exception as exc:  # noqa: BLE001 — weasyprint raises OSError/ImportError/cffi errors
+        detail = (str(exc).strip().splitlines() or [type(exc).__name__])[0][:400]
+        return f"weasyprint PDF conversion failed: {detail}"
+    return None
