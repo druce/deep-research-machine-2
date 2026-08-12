@@ -132,11 +132,9 @@ placeholder:
 > Source priority, reconciliation and claim-status rules — follow these exactly:
 > <claim_status_rule, pasted in full>
 >
-> One exception to the citation rule above, because this pipeline harvests URLs
-> for you: cite local evidence by id (`[^<source-id>]`), and cite anything you
-> found on the web by its bare URL inline. Do NOT save web pages into
-> `sources/` yourself — list every URL in `cited_urls` and the driver's
-> `fetch-urls` will fetch them into bronze after you return.
+> You are at the researcher end of that citation flow: cite local evidence by
+> id (`[^<source-id>]`), cite web findings by bare URL inline, and list every
+> URL in `cited_urls`. The driver harvests them after you return.
 >
 > Write your answer with `write_answer`, exactly as your agent instructions
 > describe, using this id: `<TODAY>_research_answer_r<R>-<batch-slug>`

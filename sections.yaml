@@ -76,10 +76,19 @@ claim_status_rule: |
   "Note: [source A] reports X while [source B] reports Y; using SEC filing value."
 
   **Citation rule:** Every quantitative claim MUST carry an inline citation in the form
-  [^<source-id>], where <source-id> is the id of a file in sources/ or structured/
-  (e.g. [^2026-07-30_sec_10q], [^price_targets_yahoo]). New web findings must be saved
-  to sources/ FIRST, then cited by their new id. A claim you cannot cite gets the prefix
-  [UNVERIFIED] so downstream writers know to validate or omit it.
+  [^<source-id>], where <source-id> is BRONZE — the id of a file in sources/ or
+  structured/ (e.g. [^2026-07-30_sec_10q], [^price_targets_yahoo]).
+  Never cite an answer file or any derived/ id: those are model-written, and a citation
+  terminating there would make model output look like evidence.
+
+  New web findings are NOT saved by hand. A researcher cites the bare URL inline and
+  lists it in the answer's `cited_urls`; `sra.py fetch-urls` fetches it into sources/ and
+  records the URL in a URL->id map next to the answer (derived/answers/<id>.urls.json).
+  Whoever writes the wiki page or report section reads that map and cites the bronze id
+  it names. A URL mapped to null could not be fetched — that claim is not citable.
+
+  A claim you cannot cite gets the prefix [UNVERIFIED] so downstream writers know to
+  validate or omit it.
 
   **Claim-status rule:** Every forward-looking or non-historical number MUST carry its
   status tag. A downstream writer cannot recover this from the number alone — an unlabelled

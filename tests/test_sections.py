@@ -1,4 +1,5 @@
 """Tests for sections.yaml and its loader (spec §18.1)."""
+import re
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,18 @@ def test_top_level_editorial_blocks_present():
     assert "Surface contradictions" in cfg["tension_analysis"]
     for tag in ("[REPORTED]", "[GUIDANCE]", "[CONSENSUS]", "[ESTIMATE]"):
         assert tag in cfg["claim_status_rule"]
+
+
+def test_claim_status_rule_describes_the_harvest_citation_flow():
+    """§8.2/§8.3: nobody hand-saves a web finding into sources/ — the researcher
+    lists the URL, `fetch-urls` fetches it, and the writer cites the bronze id
+    from the URL->id map. This rule is pasted verbatim into researcher and
+    synthesizer prompts, so a stale copy of EXP's pre-harvest wording would
+    instruct agents to write model text into evidence."""
+    rule = load_sections()["claim_status_rule"]
+    assert "fetch-urls" in rule and "cited_urls" in rule and ".urls.json" in rule
+    assert not re.search(r"saved\s+to\s+sources/\s+FIRST", rule)
+    assert re.search(r"[Nn]ever cite an answer file", rule)
 
 
 def test_length_presets_scale_word_targets():
