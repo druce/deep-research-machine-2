@@ -87,11 +87,20 @@ above all stay. Only the syntax changes.
    benchmark". Not "Leverage is not a credit question; it is a share-count question". The thesis
    goes in the section's first sentence, where the reader is already looking.
 8. **Complete sentences, always.** No verbless fragments, no headline-ese. "Data gravity: XSIAM
-   ARR above $600 million, up 100% across 740 customers" is a caption, not prose.
+   ARR above $600 million, up 100% across 740 customers" is a caption, not prose. This rule
+   does not bend for the word budget. If the sentence will not fit, the *point* does not fit —
+   drop it and keep the ones that survive whole. "…cancel on 90 days' notice, Google's from the
+   turn of the year" is what this rule exists to prevent: an elliptical clause carrying a date
+   that belongs to a different company.
 9. **American spelling throughout.** amortization, organization, recognized, platformized,
    realized, labeled. Not amortisation, organisation, recognised.
 10. **Cut the third item.** Where you have written a triad, keep the two that carry numbers.
     Three-part lists read as rhetoric unless the list is genuinely exhaustive.
+11. **Bullets are allowed for a parallel enumeration.** Risks, catalysts, drivers, a top-five:
+    these are lists, and a list reads faster as a list. Each bullet is still a complete sentence
+    with a number in it. What may never be bulleted is the *argument* — the connective tissue
+    between claim, evidence and implication is the analysis, and stripping it to fragments is
+    the same defect as compressing a sentence past readability.
 
 ### Rewrites
 
@@ -105,6 +114,22 @@ above all stay. Only the syntax changes.
 | Check Point is the clearest donor at 6% fiscal 2025 revenue growth. | Check Point is the most likely share donor. FY2025 revenue grew 6%. |
 | Nir Zuk's resignation, softened by an advisory glide path to November 2, 2026. | Nir Zuk resigned as CTO and director effective August 14, 2025, staying on as an advisor through November 2, 2026. |
 | Volatility, not terminal value. | We read the Evercore cut as a volatility event, not a change to terminal value. |
+
+### Compressed past readability
+
+A different failure from the one above, and the one a word budget causes. These
+shipped. Each was written by a writer a few dozen characters over its cap.
+
+| Compressed past readability | What it should have said | Cost |
+|---|---|---|
+| …cancel on 90 days' notice, Google's from the turn of the year. | …cancel on 90 days' notice. Google's right begins January 1, 2027; Anthropic's start date is undisclosed. | +9 words |
+| The BryceTech shares above rest on 165 of 325 global orbital launches in 2025. | The BryceTech market shares above are computed from 165 of 325 global orbital launches in 2025. | +4 words |
+| That backlog is roughly a fifth of SpaceX's. | CoreWeave's backlog is roughly a fifth of SpaceX's company-wide backlog. | +3 words |
+
+Sixteen words, across a whole report. Never buy the budget with clarity: a
+sentence the reader must read twice has not saved anything, it has moved the
+cost from your budget to theirs. When the draft is long, drop a *point* — the
+procedure is under *Length* in the shared writing contract.
 
 ### Count these before you report a draft done
 

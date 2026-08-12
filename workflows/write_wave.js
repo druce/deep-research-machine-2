@@ -76,7 +76,14 @@ function hardChecks(section) {
   // The character cap is a per-run budget (length preset x word target), not a
   // property of the section, so it is appended here rather than living in
   // sections.yaml next to the structural checks.
-  if (cap) rules.push(`max_length: ${cap}`)
+  //
+  // `max_length_prose`, not `max_length`: the cap must not count draft citation
+  // ids, which assembly renumbers from 21 characters to five. It used to, and
+  // the effect was measurable — every SPCX section landed between 98.7% and
+  // 100.0% of its cap (business_model three characters under), with up to 27%
+  // of the budget spent on ids the reader never sees. Writers optimise against
+  // the binding constraint, so the constraint has to measure the right thing.
+  if (cap) rules.push(`max_length_prose: ${cap}`)
   return JSON.stringify(rules)
 }
 

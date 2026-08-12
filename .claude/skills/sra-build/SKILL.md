@@ -172,11 +172,18 @@ script, not a shell command) with args:
   "workdir": "<absolute path to data/<TICKER>>",
   "report_date": "<the run directory name>",
   "sections": "<[{id, title, wiki_page, word_target, hard_checks}] from sections.yaml>",
-  "char_caps": "<{section: max characters} = word_target x 8>"
+  "char_caps": "<{section: max characters} = word_target x 10>"
 }
 ```
 
 `report_date` is the `<RUN>` opened at step 1. A stamped run is immutable.
+
+`char_caps` is a **runaway guard, not the target**. At ×10 it sits roughly 25%
+above `word_target`, and the write wave applies it as `max_length_prose`, which
+excludes draft citation ids. It used to be ×8 counting everything, and every
+SPCX section came in within 1.3% of its cap — the writers were shaving
+characters, not writing to a target. The section critic enforces the actual
+word target; this only catches a draft that has run away.
 
 The seven sections run as seven independent chains launched together, ordered
 longest-first, each grouped in the progress display under its own section title.

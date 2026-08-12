@@ -86,6 +86,31 @@ def _check_length(name: str, value: str, text: str) -> str | None:
     return None
 
 
+def _check_max_length_prose(value: str, text: str) -> str | None:
+    """Character cap over PROSE, with draft citation markers excluded (§18.3).
+
+    A draft cites `[^2026-05-21_sec_10q]` — 21 characters that assembly
+    renumbers to `[^12]`, five. Counting the draft form charges the writer for
+    machinery the reader never sees, and charges it hardest to the sections that
+    cite best: SPCX's competitive draft spent 27.3% of its character budget on
+    ids, then compressed its prose to land five characters under the cap.
+
+    That is the wrong thing to squeeze. `max_length` still exists and still
+    counts every character; this rule is what the write wave applies.
+    """
+    try:
+        threshold = int(value)
+    except ValueError:
+        return f"max_length_prose: threshold {value!r} is not a number"
+    prose = CITATION_RE.sub("", text)
+    actual = len(prose)
+    if actual <= threshold:
+        return None
+    return (f"max_length_prose: {actual} characters of prose, over the "
+            f"{threshold} cap by {actual - threshold} "
+            f"(citation ids excluded; raw length is {len(text)})")
+
+
 def _check_not_regex(pattern: str, text: str) -> str | None:
     match = re.search(pattern, text, re.MULTILINE)
     if match is None:
@@ -262,6 +287,8 @@ def run_checks(text: str, rules: list, base_dir: Path, *,
 
         if name in LENGTH_RULES:
             problem = _check_length(name, value, text)
+        elif name == "max_length_prose":
+            problem = _check_max_length_prose(value, text)
         elif name == "startswith":
             first = _first_line(text)
             problem = (None if first.startswith(value)
