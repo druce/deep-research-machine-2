@@ -41,6 +41,8 @@ from lib.manifest import build_manifest
 # `_reject_path_traversal` is imported rather than reimplemented so the rule for
 # what counts as a bare artifact id (§8.4) has exactly one definition.
 from lib.peers_scoring import PEER_SET_SIZE, apply_selection
+from lib.charts.base import load_verdict
+from lib.charts.registry import RENDERERS, select
 from lib.provenance import (
     StructuredMeta, _reject_path_traversal, read_structured, resolve_artifact,
     resolve_source, write_derived)
@@ -1009,6 +1011,59 @@ def cmd_wiki_log(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_charts(args: argparse.Namespace) -> int:
+    """Render chart candidates into `charts/candidates/` (§16.1, §16.4).
+
+    Two passes, split by `requires_verdict`. The default pass runs the exhibits
+    that are pure functions of bronze; `--verdict` runs the conclusion-dependent
+    ones after the polish chain has written `verdict.json`.
+
+    Three outcomes per renderer, and they are deliberately different things:
+    rendered, SKIPPED (returned `None` — its inputs are not on disk, which §16.1
+    calls normal degradation), and errored. One broken renderer must not cost
+    the other exhibits, so a raising renderer is caught, recorded, and the walk
+    continues; the exit code is 2 if anything errored.
+
+    Refusing `--verdict` without a verdict (exit 1) is the one hard stop: those
+    renderers READ the fair value, and running them without one would quietly
+    produce a football field with nothing plotted on it.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+    if not _require_initialized(ticker, d):
+        return 1
+
+    if args.verdict and load_verdict(d) is None:
+        print(f"{ticker}: no verdict.json under reports/ — run the polish chain "
+              f"before `charts {ticker} --verdict` (§16.4)", file=sys.stderr)
+        return 1
+
+    rendered: list[str] = []
+    skipped: list[str] = []
+    errors: dict[str, str] = {}
+
+    try:
+        with TickerLock(d, "charts", force=args.force_lock):
+            for name in select(RENDERERS, verdict=args.verdict):
+                try:
+                    result = RENDERERS[name].fn(d)
+                except Exception as exc:  # one bad renderer, not a lost pass
+                    errors[name] = f"{type(exc).__name__}: {exc}"
+                    continue
+                (rendered if result is not None else skipped).append(name)
+    except LockHeldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    for name, message in errors.items():
+        print(f"warning: {name}: {message}", file=sys.stderr)
+    print(json.dumps({"rendered": rendered, "skipped": skipped,
+                      "errors": errors}, indent=2))
+    return 0 if not errors else 2
+
+
 def cmd_wiki_index(args: argparse.Namespace) -> int:
     """Regenerate `wiki/00_index.md` from page frontmatter (§4)."""
     resolved = _resolve_ticker(args)
@@ -1178,6 +1233,12 @@ def build_parser() -> argparse.ArgumentParser:
                     help="cap the number of URLs fetched per document")
 
     add("validate", cmd_validate, mutating=False)
+
+    sp = add("charts", cmd_charts, mutating=True)
+    sp.add_argument("--verdict", action="store_true",
+                    help="render the conclusion-dependent exhibits instead, "
+                         "reading reports/latest/verdict.json (§16.4)")
+
     add("wiki-index", cmd_wiki_index, mutating=True)
     add("wiki-lint", cmd_wiki_lint, mutating=False)
 
