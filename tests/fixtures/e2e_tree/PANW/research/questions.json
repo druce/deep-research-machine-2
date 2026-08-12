@@ -1,0 +1,19 @@
+[
+  {
+    "hash": "3e554ba741",
+    "question": "What drove gross margin expansion in FY26?",
+    "section": "financial",
+    "status": "answered",
+    "origin": "seed",
+    "attempts": 0,
+    "round": 1,
+    "answer_source_ids": [
+      {
+        "id": "2026-05-21_sec_10q",
+        "fetched_at": "2026-05-21T12:00:00+00:00"
+      }
+    ],
+    "answer_artifacts": [],
+    "answered_at": "2026-08-10T12:00:00+00:00"
+  }
+]

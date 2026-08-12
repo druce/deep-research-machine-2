@@ -1,0 +1,50 @@
+{
+  "_meta": {
+    "id": "prices_yahoo",
+    "ticker": "PANW",
+    "producer": "fetch",
+    "title": "PANW daily OHLCV prices (4y)",
+    "source": "Yahoo Finance",
+    "url": "https://finance.yahoo.com/quote/PANW/history",
+    "provider_tool": "yfinance.download",
+    "fetch_cmd": "sra.py prefetch PANW --kinds prices",
+    "fetched_at": "2026-08-10T12:00:00+00:00",
+    "as_of": "2026-08-10",
+    "derived_from": []
+  },
+  "data": {
+    "daily": {
+      "dates": [
+        "2026-08-06",
+        "2026-08-07",
+        "2026-08-10"
+      ],
+      "open": [
+        184.0,
+        185.2,
+        186.0
+      ],
+      "high": [
+        186.5,
+        187.0,
+        188.2
+      ],
+      "low": [
+        183.1,
+        184.0,
+        185.5
+      ],
+      "close": [
+        185.2,
+        186.0,
+        187.4
+      ],
+      "volume": [
+        4900000,
+        5100000,
+        5300000
+      ]
+    },
+    "benchmark": null
+  }
+}

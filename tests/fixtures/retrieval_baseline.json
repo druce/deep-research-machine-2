@@ -1,0 +1,9 @@
+{
+  "_note": "Placeholder. §9.2's CI baseline is recorded from a real build (the PANW acceptance run), not from the synthetic e2e corpus, whose two documents cannot represent retrieval on a real one. Until then `mean_recall` is null and `compare_to_baseline` refuses to pass — a placeholder that passed would be a gate nobody notices is switched off.",
+  "recorded_from": null,
+  "recorded_at": null,
+  "ticker": "PANW",
+  "k": 10,
+  "mean_recall": null,
+  "scored": null
+}

@@ -1,0 +1,59 @@
+{
+  "_meta": {
+    "id": "key_ratios_computed",
+    "ticker": "PANW",
+    "producer": "compute",
+    "title": "PANW key ratios (TTM)",
+    "source": "computed",
+    "provider_tool": "lib/fetchers/fundamentals.py",
+    "fetch_cmd": "sra.py prefetch PANW --kinds financials",
+    "computed_at": "2026-08-10T12:00:00+00:00",
+    "as_of": "2026-07-31",
+    "period": "ttm",
+    "currency": "USD",
+    "derived_from": [
+      "profile_yahoo"
+    ]
+  },
+  "data": {
+    "valuation": {
+      "trailing_pe": 48.2,
+      "forward_pe": 52.1,
+      "peg_ratio": 2.4,
+      "price_to_sales_ttm": 15.1,
+      "price_to_book": 18.0,
+      "ev_to_revenue": 14.2,
+      "ev_to_ebitda": 61.0
+    },
+    "highlights": {
+      "market_cap": 124300000000,
+      "enterprise_value": 121000000000,
+      "revenue_ttm": 8030000000,
+      "ebitda": 1980000000,
+      "net_income": 1200000000,
+      "total_cash": 2500000000,
+      "total_debt": 1000000000,
+      "revenue_growth_yoy": 0.142,
+      "earnings_growth_yoy": 0.21
+    },
+    "profitability": {
+      "gross_margin": 0.742,
+      "operating_margin": 0.124,
+      "profit_margin": 0.149,
+      "return_on_assets": 0.06,
+      "return_on_equity": 0.22
+    },
+    "liquidity": {
+      "current_ratio": 0.9,
+      "quick_ratio": 0.8,
+      "debt_to_equity": 45.0
+    },
+    "per_share": {
+      "eps_ttm": 3.42,
+      "eps_forward": 3.6,
+      "book_value": 10.4,
+      "revenue_per_share": 24.1,
+      "dividend_rate": null
+    }
+  }
+}

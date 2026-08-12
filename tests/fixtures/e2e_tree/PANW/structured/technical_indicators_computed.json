@@ -1,0 +1,51 @@
+{
+  "_meta": {
+    "id": "technical_indicators_computed",
+    "ticker": "PANW",
+    "producer": "compute",
+    "title": "PANW technical indicators",
+    "source": "computed",
+    "provider_tool": "lib/fetchers/technical.py",
+    "fetch_cmd": "sra.py prefetch PANW --kinds technical",
+    "computed_at": "2026-08-10T12:00:00+00:00",
+    "as_of": "2026-08-10",
+    "derived_from": [
+      "prices_yahoo"
+    ]
+  },
+  "data": {
+    "symbol": "PANW",
+    "date": "2026-08-10",
+    "close": 187.4,
+    "indicators": {
+      "sma_20": 180.1,
+      "sma_50": 176.0,
+      "sma_200": 165.2,
+      "rsi": 61.2,
+      "macd": 2.1,
+      "macd_signal": 1.4,
+      "macd_histogram": 0.7,
+      "atr": 4.4,
+      "bollinger_upper": 191.0,
+      "bollinger_middle": 180.1,
+      "bollinger_lower": 169.2,
+      "volume_latest": 5300000,
+      "volume_avg_20d": 5100000
+    },
+    "trend_signals": {
+      "golden_cross": true,
+      "death_cross": false,
+      "above_sma20": true,
+      "above_sma50": true,
+      "above_sma200": true,
+      "rsi_overbought": false,
+      "rsi_oversold": false,
+      "macd_bullish": true,
+      "macd_bearish": false,
+      "above_upper_bb": false,
+      "below_lower_bb": false,
+      "volume_above_avg": true
+    },
+    "analysis": "PANW closed at $187.40 on 2026-08-10, above every moving average."
+  }
+}

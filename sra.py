@@ -34,6 +34,7 @@ from lib.fetchers.registry import (
     dependency_map,
     run_prefetch,
 )
+from lib.eval_retrieval import DEFAULT_K, compare_to_baseline, evaluate
 from lib.grep import grep
 from lib.invalidate import apply_invalidation, compute_invalidation
 from lib.lock import LockHeldError, TickerLock
@@ -989,6 +990,35 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1 if has_errors(findings) else 0
 
 
+def cmd_eval_retrieval(args: argparse.Namespace) -> int:
+    """Replay answered questions through the grep path and report recall (§9.2).
+
+    Read-only, so no lock. Exit 1 only for a `--baseline` regression: the
+    metric is a regression test, and a low absolute number on a young ledger
+    is information, not a failure.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+    if not _require_initialized(ticker, d):
+        return 1
+
+    result = evaluate(d, k=args.k)
+    if args.baseline:
+        passed, message = compare_to_baseline(result, Path(args.baseline))
+        result["baseline"] = {"path": args.baseline, "passed": passed,
+                              "message": message}
+        print(json.dumps(result, indent=2))
+        if not passed:
+            print(f"eval-retrieval: {message}", file=sys.stderr)
+            return 1
+        return 0
+
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def _require_initialized(ticker: str, ticker_dir: Path) -> bool:
     if (ticker_dir / ".state.json").exists():
         return True
@@ -1354,6 +1384,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="cap the number of URLs fetched per document")
 
     add("validate", cmd_validate, mutating=False)
+
+    sp = add("eval-retrieval", cmd_eval_retrieval, mutating=False)
+    sp.add_argument("--k", type=int, default=DEFAULT_K,
+                    help=f"how many grep hits count as retrieved (default: {DEFAULT_K})")
+    sp.add_argument("--baseline", default=None,
+                    help="recorded baseline JSON; exit 1 if mean recall drops "
+                         "more than 0.02 below it (§9.2)")
 
     sp = add("charts", cmd_charts, mutating=True)
     sp.add_argument("--verdict", action="store_true",

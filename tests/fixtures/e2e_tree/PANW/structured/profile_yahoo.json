@@ -1,0 +1,27 @@
+{
+  "_meta": {
+    "id": "profile_yahoo",
+    "ticker": "PANW",
+    "producer": "fetch",
+    "title": "Palo Alto Networks, Inc. company profile",
+    "source": "Yahoo Finance",
+    "url": "https://finance.yahoo.com/quote/PANW/profile",
+    "provider_tool": "yfinance.Ticker.info",
+    "fetch_cmd": "sra.py prefetch PANW --kinds profile",
+    "fetched_at": "2026-08-10T12:00:00+00:00",
+    "as_of": "2026-08-10",
+    "currency": "USD",
+    "derived_from": []
+  },
+  "data": {
+    "longName": "Palo Alto Networks, Inc.",
+    "sector": "Technology",
+    "industry": "Software - Infrastructure",
+    "longBusinessSummary": "Palo Alto Networks provides cybersecurity platforms.",
+    "website": "https://www.paloaltonetworks.com",
+    "country": "United States",
+    "fullTimeEmployees": 15000,
+    "marketCap": 124300000000,
+    "currency": "USD"
+  }
+}
