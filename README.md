@@ -32,36 +32,36 @@ flowchart TD
 
     subgraph fetch ["1 · Fetch — the things we always want"]
         direction TB
-        f1["10-K · 10-Q · 8-K<br/>from SEC EDGAR"]
-        f2["earnings call transcripts<br/>statements · prices · estimates"]
-        f3["peers · ownership<br/>insider trades · short interest"]
-        f4["macro series<br/>shared across tickers"]
+        f1["10-K · 10-Q · 8-K from SEC EDGAR"]
+        f2["earnings call transcripts · statements · prices · estimates"]
+        f3["peers · ownership  · insider trades · short interest"]
+        f4["macro series  · shared across tickers"]
     end
 
     subgraph research ["2 · Research — 7 sections, question-driven"]
         direction TB
-        q["seed questions per section"] --> ask["answer from the corpus,<br/>the web and MCP providers"]
-        ask --> harv["harvest every cited URL<br/>into the corpus"]
-        harv --> wik[("wiki<br/>organized by section<br/>every claim cites a source")]
+        q["seed questions per section"] --> ask["answer from the corpus,  · the web and MCP providers"]
+        ask --> harv["harvest every cited URL  · into the corpus"]
+        harv --> wik[("wiki  · organized by section  · every claim cites a source")]
         wik -. "questions still open" .-> q
     end
 
     subgraph writing ["3 · Writing — 7 parallel loops"]
         direction TB
         w1["one loop per section"] --> w2["write → critique → optimize"]
-        w2 --> w3["style, length and focus<br/>set by a per-section prompt"]
+        w2 --> w3["style, length and focus  · set by a per-section prompt"]
     end
 
     subgraph assembly ["4 · Assembly"]
         direction TB
-        a1["combine the seven sections"] --> a2["critique → optimize<br/>across the whole report"]
-        a2 --> a3["kill repetition<br/>and contradiction"]
+        a1["combine the seven sections"] --> a2["critique → optimize  · across the whole report"]
+        a2 --> a3["kill repetition  · and contradiction"]
     end
 
     subgraph finalize ["5 · Finalize"]
         direction TB
-        z1["intro · investment verdict<br/>conclusion, from the body"] --> z2["select and render charts"]
-        z2 --> z3["assemble HTML + PDF<br/>snapshot"]
+        z1["intro · investment verdict  · conclusion, from the body"] --> z2["select and render charts"]
+        z2 --> z3["assemble HTML + PDF  · snapshot"]
     end
 
     fetch --> research --> writing --> assembly --> finalize
