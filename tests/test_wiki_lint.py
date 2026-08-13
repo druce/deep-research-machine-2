@@ -255,3 +255,27 @@ def test_a_status_tag_may_carry_its_provider_and_as_of_date(tmp_ticker_dir: Path
                "against guidance.[^2026-07-30_news_yahoo]", now=NOW)
     update_index(tmp_ticker_dir)
     assert "untagged-forward-number" not in _codes(_lint(tmp_ticker_dir))
+
+
+def test_a_macro_built_from_id_is_not_flagged(tmp_ticker_dir: Path):
+    """`validate` gives citations the `_MACRO` fallback (§8.4 check 4) and this
+    check did not, so a page that cited the FRED ten-year for its risk-free rate
+    and honestly recorded it in `built_from` drew a warning for a citation the
+    fatal gate passes. TOST shipped two."""
+    from lib.provenance import StructuredMeta, write_structured
+
+    macro = tmp_ticker_dir.parent / "_MACRO"
+    macro.mkdir(parents=True, exist_ok=True)
+    write_structured(macro, StructuredMeta(
+        id="fred_dgs10", ticker="_MACRO", producer="fetch",
+        title="10-year Treasury", source="FRED",
+        url="https://fred.stlouisfed.org/series/DGS10",
+        provider_tool="fredapi", fetch_cmd="uv run python sra.py prefetch-macro",
+        fetched_at=NOW.isoformat(), as_of=NOW.date().isoformat()), {"v": 4.72})
+
+    write_page(tmp_ticker_dir, "valuation",
+               {"built_from": [{"id": "fred_dgs10",
+                                "fetched_at": NOW.isoformat()}]},
+               "No claims here.", now=NOW)
+
+    assert "invalid-built-from" not in _codes(_lint(tmp_ticker_dir))

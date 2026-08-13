@@ -27,6 +27,18 @@ import frontmatter
 
 from lib.manifest import cell
 from lib.provenance import resolve_artifact
+
+
+def _resolves_with_macro(ticker_dir: Path, ref_id: str) -> bool:
+    """Ticker artifacts first, then `_MACRO` — the reach a citation already has."""
+    if resolve_artifact(ticker_dir, ref_id) is not None:
+        return True
+    macro = ticker_dir.parent / "_MACRO"
+    if macro.is_dir() and macro.resolve() != ticker_dir.resolve():
+        return resolve_artifact(macro, ref_id) is not None
+    return False
+
+
 from lib.run_log import RUN_LOG_NAME
 from lib.sections import SECTION_IDS
 from lib.validate import Finding
@@ -508,9 +520,14 @@ def _lint_page(ticker_dir: Path, path: Path, page: str, section: str,
                 f"(§18): reference it without restating the number",
             ))
 
+    # `_resolves_with_macro`, not `resolve_artifact`: `validate` gives citations
+    # the `_MACRO` fallback (§8.4 check 4) and this check did not, so a page that
+    # cited `fred_dgs10` for its risk-free rate and honestly recorded it in
+    # `built_from` drew an advisory warning for a citation `validate` passes.
+    # TOST shipped two of those.
     for ref in post.metadata.get("built_from") or []:
         ref_id = ref.get("id") if isinstance(ref, dict) else ref
-        if isinstance(ref_id, str) and resolve_artifact(ticker_dir, ref_id) is None:
+        if isinstance(ref_id, str) and not _resolves_with_macro(ticker_dir, ref_id):
             findings.append(Finding(
                 "warning", "invalid-built-from", rel,
                 f"built_from id {ref_id!r} resolves to no artifact",

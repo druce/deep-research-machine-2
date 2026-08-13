@@ -54,6 +54,61 @@ RATIO_FIELDS: dict[str, dict[str, str]] = {
         "revenue_per_share": "revenuePerShare", "dividend_rate": "dividendRate"},
 }
 
+# Divergence above this between Yahoo's `enterpriseValue` and the same snapshot's
+# own market cap, debt and cash is reported as a warning. 2% is wide enough to
+# absorb an intraday market-cap refresh and narrow enough that TOST's 5% gap fires.
+EV_DIVERGENCE_TOLERANCE = 0.02
+
+
+def _add_computed_ev(ratios: dict) -> str | None:
+    """Add an EV computed from the snapshot's own inputs. Returns a warning.
+
+    Yahoo's `enterpriseValue` is passed through, and on 2026-08-12 TOST's
+    contradicted the rest of the same snapshot: market cap $19,287.9M less EV
+    $18,447.6M implies $840M of net cash, while the artifact's own `total_cash`
+    read $1,713.0M against `total_debt` of $0 — which is what the 10-Q shows
+    ($1,015M cash plus $698M securities, no funded debt). Add EV back to the
+    filed net cash and you exceed the actual market cap by $873M, so the
+    provider's EV and its own cash line cannot both be right. Every EV multiple
+    downstream inherited the gap, and a synthesizer three stages later was what
+    caught it.
+
+    This stays additive on purpose. §6.4 and this module's docstring make
+    `key_ratios_computed` a pass-through of the provider's own ratios, so
+    silently rebasing `ev_to_revenue` would leave the artifact reporting numbers
+    that disagree with the provider while still looking like it. The computed
+    figures sit beside the provider's under `_computed` names; a writer picks,
+    and the warning tells the operator there is a choice to make. All three
+    inputs come from one `info` snapshot, so this is same-provider arithmetic.
+    """
+    highlights, valuation = ratios["highlights"], ratios["valuation"]
+    market_cap = highlights.get("market_cap")
+    total_debt = highlights.get("total_debt")
+    total_cash = highlights.get("total_cash")
+    if market_cap is None or total_debt is None or total_cash is None:
+        return None
+
+    computed = market_cap + total_debt - total_cash
+    highlights["enterprise_value_computed"] = computed
+
+    revenue, ebitda = highlights.get("revenue_ttm"), highlights.get("ebitda")
+    valuation["ev_to_revenue_computed"] = (
+        round(computed / revenue, 3) if revenue else None)
+    valuation["ev_to_ebitda_computed"] = (
+        round(computed / ebitda, 3) if ebitda else None)
+
+    provider_ev = highlights.get("enterprise_value")
+    if not provider_ev or not computed:
+        return None
+    if abs(provider_ev - computed) / abs(computed) <= EV_DIVERGENCE_TOLERANCE:
+        return None
+    return (f"enterprise_value: provider reports {provider_ev:,.0f} but its own "
+            f"market cap, debt and cash imply {computed:,.0f} "
+            f"({(provider_ev - computed) / computed * 100:+.1f}%) — "
+            f"ev_to_revenue and ev_to_ebitda inherit the provider figure; "
+            f"the *_computed fields carry the reconciled one")
+
+
 # (provider key, artifact id, Yahoo URL slug, provider_tool).
 _STATEMENTS = (
     ("income_stmt", "income_statement_yahoo", "financials", "yfinance.Ticker.income_stmt"),
@@ -127,6 +182,8 @@ def fetch_financials(
     # Nulls stay null (§6.4): a ratio Yahoo does not supply is absent, not zero.
     ratios = {cat: {name: json_safe(info.get(key)) for name, key in fields.items()}
               for cat, fields in RATIO_FIELDS.items()}
+    ev_warning = _add_computed_ev(ratios)
+
     derived_from = list(written_ids)
     if (ticker_dir / "structured" / "profile_yahoo.json").exists():
         derived_from.append("profile_yahoo")
@@ -148,4 +205,4 @@ def fetch_financials(
     # would leave a deleted statement invisible to the missing-artifact check.
     record_fetch(state, "financials", written_ids + ["key_ratios_computed"], now,
                  {"policy": "on_earnings"})
-    return True, paths, None
+    return True, paths, ev_warning

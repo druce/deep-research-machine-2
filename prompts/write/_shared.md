@@ -222,7 +222,22 @@ as an assertion with no number behind it.
     "Treat it as a ceiling") — **0**; the report says "we";
   - British spellings (`amortisation`, `organisation`, `recognised`) — **0**;
   - headings written as theses rather than labels;
-  - verbless fragments used as verdicts ("Volatility, not terminal value.").
+  - verbless fragments used as verdicts ("Volatility, not terminal value.");
+  - sentences over 50 words — **0**. `max_sentence_words: 50` is a build gate, so
+    one reaching you has already cost a rewrite cycle;
+  - sentences stacking more than one appositive before the main verb — **0**.
+    This is the one that matters: the 47-word sentence that shipped in a TOST
+    profile ("Disclosure on Toast IQ Grow, the AI product management calls its
+    fastest-growing launch ever, stops at $10 million...") passes a 50-word cap
+    and is still unreadable, because three modifiers land before the verb;
+  - relative pronouns (`that`, `which`, `who`) deleted to save a word — **0**.
+    Without it, "the AI product management calls" reads as though *AI product
+    management* were the subject. Restoring `that` costs one word;
+  - sentences that survive the delete test — **0**. Delete the sentence: if the
+    section loses no fact, it was a frame. Pseudo-clefts ("What decides the
+    rating is...") and structure announcements ("there are two X, and they pull
+    against each other") are the two shapes, and rule 8 applies them everywhere,
+    not only to the lead.
 
   These are form defects, not content defects. Never propose fixing one by
   dropping the judgment, the number or the position — the rewrite keeps all

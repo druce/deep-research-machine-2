@@ -127,8 +127,20 @@ the shell. One `## <question>` heading per question, self-contained findings
 paragraphs under it, then a short `## Summary` and a `## Candidate follow-ups`
 list of at most three specific, evidence-seeking questions that emerged.
 
-Write the prose to `/tmp/<answer-id>.md` with the Write tool, then run this from
-the **repo root** (`uv run python - <<'PY' … PY`), filling in the placeholders:
+Write the prose to `/tmp/<answer-id>.<batch-slug>.md` with the Write tool, then
+run this from the **repo root** (`uv run python - <<'PY' … PY`), filling in the
+placeholders.
+
+**The batch slug in that filename is not decoration.** A whole wave of answerers
+runs concurrently, and `/tmp/<answer-id>.md` alone is not unique enough: on a TOST
+round two answerers collided on the shared path, and one agent's `write_answer`
+picked up the other's body between the Write and the read. It was caught on
+read-back and repaired, but nothing in the pipeline would have flagged an answer
+file that parsed cleanly under the wrong frontmatter. Use the slug you were given;
+if you were given none, append any token unique to you.
+
+**Read the file back after `write_answer` and confirm its first heading is one of
+your own questions.** That is the check that caught it.
 
 ```python
 from datetime import date, datetime, timezone
@@ -136,7 +148,7 @@ from pathlib import Path
 
 from lib.provenance import SourceMeta, write_answer
 
-body = Path("/tmp/<ANSWER_ID>.md").read_text(encoding="utf-8")
+body = Path("/tmp/<ANSWER_ID>.<BATCH_SLUG>.md").read_text(encoding="utf-8")
 now = datetime.now(timezone.utc)
 meta = SourceMeta(
     id="<ANSWER_ID>",

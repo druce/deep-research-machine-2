@@ -230,7 +230,29 @@ def to_html(md_path: Path, html_path: Path, *, pagetitle: str,
     except subprocess.CalledProcessError as exc:
         detail = exc.stderr.decode(errors="replace").strip()[:800]
         return f"pandoc HTML conversion failed: {detail}"
+
+    _strip_variation_selectors(html_path)
     return None
+
+
+# U+FE0E asks for the text (non-emoji) presentation of the character before it.
+# Pandoc appends it to the U+21A9 return arrows `link_citations` writes, and
+# weasyprint cannot shape the pair: it finds no face covering the sequence and
+# falls through to macOS `.LastResort`, which draws every one of them as a boxed
+# question mark. A TOST run shipped 469 of those across its references pages.
+# The arrow alone renders everywhere, so drop the selector rather than chase a
+# font stack — and note that `lint-render` cannot catch this class of defect,
+# because a missing glyph is not leaked template text.
+_VARIATION_SELECTORS = str.maketrans({chr(cp): None
+                                      for cp in range(0xFE00, 0xFE10)})
+
+
+def _strip_variation_selectors(html_path: Path) -> None:
+    """Remove Unicode variation selectors from rendered HTML, in place."""
+    text = html_path.read_text(encoding="utf-8")
+    cleaned = text.translate(_VARIATION_SELECTORS)
+    if cleaned != text:
+        html_path.write_text(cleaned, encoding="utf-8")
 
 
 def to_pdf(html_path: Path, pdf_path: Path) -> str | None:

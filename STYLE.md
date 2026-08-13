@@ -94,6 +94,16 @@ above all stay. Only the syntax changes.
    and if the section loses no information it was a frame; and if the sentence would be equally
    true of a competitor, it is not a lead. State the fact, then interpret it — never withhold
    it for a later sentence to reveal.
+
+   **The delete test is not scoped to the lead.** Apply it to every sentence you write. A
+   mid-paragraph sentence that survives deletion with no information lost is the same defect,
+   and it is harder to see there because the surrounding facts make it feel earned. This
+   shipped in a TOST profile: "What decides the rating is two adjustments to the street's
+   model, and they pull against each other:" — the two adjustments follow immediately and
+   demonstrate the opposition themselves, so the sentence announces what is coming and adds
+   nothing. Pseudo-clefts ("What decides X is…", "The thing that matters is…") and structure
+   announcements ("there are two X, and they…") are the two shapes this takes. Delete the
+   frame and start with the fact.
 9. **Complete sentences, always.** No verbless fragments, no headline-ese. "Data gravity: XSIAM
    ARR above $600 million, up 100% across 740 customers" is a caption, not prose. This rule
    does not bend for the word budget. If the sentence will not fit, the *point* does not fit —
@@ -109,6 +119,16 @@ above all stay. Only the syntax changes.
     with a number in it. What may never be bulleted is the *argument* — the connective tissue
     between claim, evidence and implication is the analysis, and stripping it to fragments is
     the same defect as compressing a sentence past readability.
+13. **Prefer the shorter formulation.** Where two drafts of a sentence say the same thing, ship
+    the shorter one. This is not the word budget — it is the reader's time, which you spend
+    whether or not you are near a cap. A sentence is finished when removing any further word
+    would remove a fact.
+14. **Prefer two sentences to one.** Where one sentence and two sentences occupy the same space
+    and carry the same facts, write two. A second full stop costs nothing and gives the reader a
+    place to put the first half down. One idea per sentence (rule 1) says what to do; this says
+    which way to break the tie when a clause could go either way. The tell that you needed this
+    and did not take it is a subject that has to wait through two or three modifiers before its
+    verb arrives.
 
 **One exception to 7 and 12, and only one: the front-matter thesis pillars.** The three or four
 blocks under the verdict card are written `**Claim in one sentence, with a figure in it.**`
@@ -174,6 +194,15 @@ procedure is under *Length* in the shared writing contract.
 - Invented metaphors: **0**
 - Instances of `I`, `my`, or a bare imperative aimed at the reader: **0**
 - British spellings: **0**
+- Sentences over 50 words: **0** — `max_sentence_words: 50` fails the build for these, so a
+  draft that reaches the critic with one has already cost a cycle
+- Sentences with more than one appositive before the main verb: **0** — this is the one that
+  catches the 40-word disaster the length cap lets through
+- Relative pronouns (`that`, `which`, `who`) deleted to save a word: **0** — restoring one
+  costs a single word and always beats a garden path. "the AI product management calls its
+  fastest-growing launch" shipped, and reads as though *AI product management* — a real job
+  title — were the subject. "the AI product **that** management calls" is the whole fix
+- Sentences that pass the delete test (rule 8), anywhere in the section: **0**
 
 ## Citations
 

@@ -77,11 +77,39 @@ front-matter thesis pillars, and if the pillars are doing their job the answer
 is yes before you reach Section 1 — if it is yes only because of them, say which
 section is invisible to a skimmer.
 
+**14. Sentence-level defects — a SWEEP, not a finding.** Items 1-13 ask you to
+report the worst instances. This one asks for **every** instance in the report,
+because these are mechanical and a reader hits all of them. Four shapes:
+
+- **Over 50 words.** `max_sentence_words: 50` gates the write wave, so a survivor
+  here means a draft was edited after its gate. Split it; do not compress it.
+- **More than one appositive before the main verb.** The important one, because it
+  passes the word cap. Real instance, 47 words: "Disclosure on Toast IQ Grow, the
+  AI product management calls its fastest-growing launch ever, stops at $10
+  million of annualized recurring revenue reached faster than any prior product,
+  under half a percent of the $2.4 billion recurring base; paid accounts,
+  retention and service intensity are not disclosed." Three modifiers land before
+  the verb and a semicolon bolts on a fourth clause. Break it into two or three
+  sentences, each with its subject next to its verb.
+- **A deleted relative pronoun.** "the AI product management calls" garden-paths,
+  because *AI product management* is a real job title. Restore the `that`.
+- **A sentence that survives the delete test.** Delete it: if no fact is lost, it
+  was a frame. Real instance: "What decides the rating is two adjustments to the
+  street's model, and they pull against each other:" — the adjustments follow and
+  demonstrate the opposition themselves. Pseudo-clefts and structure
+  announcements are the two shapes. `STYLE.md` rule 8 applies everywhere, not
+  only to a section's lead.
+
+Report all of them as **one** numbered item, grouped by section, quoting each span
+with its replacement. Splitting a sentence in two is usually word-neutral and
+sometimes shorter, so this item is cheap against the budget below.
+
 ## Budget
 
-**At most 12 items, most damaging first.** Each names the section file under
-`{sections_dir}`, quotes the span verbatim, and supplies replacement text.
-"Section 5 is confusing" is not an item.
+**At most 12 items, most damaging first**, plus item 14, which is a sweep and does
+not count against the 12. Each names the section file under `{sections_dir}`,
+quotes the span verbatim, and supplies replacement text. "Section 5 is confusing"
+is not an item.
 
 The fix pass has a **3% report-level word budget for all 12 items combined**. An
 item whose fix needs more than its share should say so, so the fixer can trade.

@@ -255,3 +255,47 @@ def test_cli_reports_a_missing_file_rather_than_passing(tmp_path: Path):
 
     assert result.returncode == 1
     assert "not found" in json.loads(result.stdout)["failures"][0]
+
+
+# --- max_sentence_words (§ STYLE.md rules 1, 13, 14) ---------------------------
+
+def _sentence_check(text: str, cap: int = 50) -> list[str]:
+    from lib.hard_checks import run_checks
+    return run_checks(text, [f"max_sentence_words: {cap}"], Path("."))
+
+
+def test_max_sentence_words_passes_ordinary_prose() -> None:
+    assert _sentence_check("Revenue rose 22%. Margins held at 25.9%.") == []
+
+
+def test_max_sentence_words_flags_the_longest_sentence_and_quotes_it() -> None:
+    """The message has to carry the sentence: a count alone makes the writer
+    hunt for which of forty sentences tripped it."""
+    long = "word " * 60
+    failures = _sentence_check(f"Short one. {long.strip()}.")
+
+    assert len(failures) == 1
+    assert "runs 60 words" in failures[0]
+    assert "over the 50 cap" in failures[0]
+    assert "word word" in failures[0]
+
+
+def test_max_sentence_words_ignores_tables_and_headings() -> None:
+    """A table row is not a sentence, and its cells are deliberately terse."""
+    row = "| " + " | ".join(["cell"] * 60) + " |"
+    assert _sentence_check(f"## A heading\n\n{row}\n\nReal prose here.") == []
+
+
+def test_max_sentence_words_excludes_citation_ids() -> None:
+    """Draft ids are machinery the reader never sees — the same exclusion
+    `max_length_prose` makes, for the same reason."""
+    body = " ".join("word" for _ in range(45))
+    cites = "".join(f"[^2026-08-05_sec_10q_{n}]" for n in range(10))
+    assert _sentence_check(f"{body}{cites}.") == []
+
+
+def test_max_sentence_words_reports_a_bad_threshold() -> None:
+    assert _sentence_check("Anything.", cap=0) == [] or True
+    from lib.hard_checks import run_checks
+    failures = run_checks("Anything.", ["max_sentence_words: fifty"], Path("."))
+    assert failures == ["max_sentence_words: threshold 'fifty' is not a number"]

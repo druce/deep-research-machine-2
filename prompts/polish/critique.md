@@ -35,11 +35,38 @@ uv run python sra.py show {ticker} <bronze-id>
 **5. Where does it hedge?** A report that qualifies every claim has taken no
 position. Name the sentences that retreat.
 
+**6. Which sentences cannot be read once?** Sweep the whole report and list
+**every** instance — not a sample, and not merged away under the budget rule
+below. Four shapes:
+
+- over 50 words (`max_sentence_words: 50` gates the write wave, so one here means
+  a draft was edited after its gate);
+- more than one appositive before the main verb — the shape that passes the word
+  cap and still cannot be parsed. A 47-word instance shipped: "Disclosure on
+  Toast IQ Grow, the AI product management calls its fastest-growing launch ever,
+  stops at $10 million of annualized recurring revenue reached faster than any
+  prior product, under half a percent of the $2.4 billion recurring base; paid
+  accounts, retention and service intensity are not disclosed.";
+- a relative pronoun deleted to save a word, where the sentence then garden-paths
+  ("the AI product **that** management calls" is the fix);
+- a sentence that survives the delete test — delete it and no fact is lost.
+  "What decides the rating is two adjustments to the street's model, and they
+  pull against each other:" announces what the next clause delivers. `STYLE.md`
+  rule 8 applies to every sentence, not only to a section's lead.
+
+Quote each span and give the replacement. Splitting a sentence is usually
+word-neutral, so the fix rarely costs length — per `STYLE.md` rule 14, prefer two
+sentences to one whenever they occupy the same space.
+
 ## Budget
 
 **Under 1,500 words and at most 20 numbered items, most important first.** A
 critique longer than what it reviews is unfocused. Merge related instances into
 one item with examples rather than enumerating each.
+
+Item 6 is the exception to both limits: it is a sweep, it lists every instance,
+and its spans do not count against the 1,500 words. Merging it away would defeat
+it — a reader hits every one of those sentences, not a representative sample.
 
 Every item must name the file, quote the span, and state the fix. "Section 5 is
 weak" is not an item; "Section 5 asserts value creation without deriving ROIC —

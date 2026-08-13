@@ -473,3 +473,38 @@ def test_pillar_claims_are_not_promoted_to_headings() -> None:
     body = markdown.split("::: {.pillars}")[1].split(":::")[0]
 
     assert not any(line.startswith("#") for line in body.splitlines())
+
+
+def test_variation_selectors_are_stripped_from_rendered_html(tmp_path: Path) -> None:
+    """U+FE0E after the U+21A9 back-link arrow renders as tofu in the PDF.
+
+    Pandoc appends the text-presentation selector to the return arrows
+    `link_citations` writes. weasyprint finds no face covering the pair and
+    falls through to `.LastResort`, which draws a boxed question mark — a TOST
+    run shipped 469 of them across its references pages. `lint-render` cannot
+    catch it, because a missing glyph is not leaked template text.
+    """
+    from lib.render.assemble import _strip_variation_selectors
+
+    html = tmp_path / "report.html"
+    html.write_text('<a class="backref" href="#cite-1-1">↩︎¹</a>',
+                    encoding="utf-8")
+
+    _strip_variation_selectors(html)
+
+    text = html.read_text(encoding="utf-8")
+    assert "︎" not in text
+    assert "↩¹" in text
+
+
+def test_stripping_variation_selectors_leaves_clean_html_untouched(tmp_path: Path) -> None:
+    """No rewrite when there is nothing to strip — the file keeps its mtime."""
+    from lib.render.assemble import _strip_variation_selectors
+
+    html = tmp_path / "report.html"
+    html.write_text("<p>plain ↩¹</p>", encoding="utf-8")
+    before = html.stat().st_mtime_ns
+
+    _strip_variation_selectors(html)
+
+    assert html.stat().st_mtime_ns == before

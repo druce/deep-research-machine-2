@@ -152,6 +152,7 @@ sections:
       - "startswith: ## 1. Company Profile"
       - 'not_regex: ^## [\s\S]*?^## '
       - 'not_regex: (?i)\bthe analyst\b'
+      - "max_sentence_words: 50"
     subscribes_to:
       - profile
       - wikipedia
@@ -203,6 +204,7 @@ sections:
       - "startswith: ## 2. Business Model"
       - 'not_regex: ^## [\s\S]*?^## '
       - 'not_regex: (?i)\bthe analyst\b'
+      - "max_sentence_words: 50"
     subscribes_to:
       - filings
       - transcript
@@ -252,6 +254,7 @@ sections:
       - "startswith: ## 3. Competitive Landscape"
       - 'not_regex: ^## [\s\S]*?^## '
       - 'not_regex: (?i)\bthe analyst\b'
+      - "max_sentence_words: 50"
     subscribes_to:
       - filings
       - transcript
@@ -299,6 +302,7 @@ sections:
       - "startswith: ## 4. Supply Chain Positioning"
       - 'not_regex: ^## [\s\S]*?^## '
       - 'not_regex: (?i)\bthe analyst\b'
+      - "max_sentence_words: 50"
     subscribes_to:
       - filings
       - news
@@ -347,6 +351,7 @@ sections:
       - "startswith: ## 5. Financial Strength"
       - 'not_regex: ^## [\s\S]*?^## '
       - 'not_regex: (?i)\bthe analyst\b'
+      - "max_sentence_words: 50"
     subscribes_to:
       - financials
       - filings
@@ -403,6 +408,7 @@ sections:
       - "startswith: ## 6. Valuation"
       - 'not_regex: ^## [\s\S]*?^## '
       - 'not_regex: (?i)\bthe analyst\b'
+      - "max_sentence_words: 50"
     subscribes_to:
       - financials
       - estimates
@@ -459,6 +465,7 @@ sections:
       - "startswith: ## 7. Risks"
       - 'not_regex: ^## [\s\S]*?^## '
       - 'not_regex: (?i)\bthe analyst\b'
+      - "max_sentence_words: 50"
     subscribes_to:
       - news
       - filings

@@ -347,3 +347,44 @@ def test_the_ledger_round_trips_as_json(tmp_ticker_dir: Path):
 def test_a_missing_ledger_reads_as_empty(tmp_ticker_dir: Path):
     assert load_questions(tmp_ticker_dir) == []
     assert open_questions(tmp_ticker_dir) == []
+
+
+# --- `_MACRO` reach, matching what a citation already has ----------------------
+
+def test_a_question_closes_against_macro_bronze(tmp_path: Path) -> None:
+    """`validate` resolves `fred_dgs10` on a ticker page (§8.4 check 4). A
+    shorter reach here made the same id legal to cite in prose and impossible to
+    record as the evidence that closed the question: a TOST valuation answer
+    cited the FRED ten-year for its WACC and could not be marked answered."""
+    ticker_dir = tmp_path / "PANW"
+    (ticker_dir / "research").mkdir(parents=True)
+    macro = tmp_path / "_MACRO"
+    macro.mkdir()
+    write_structured(macro, StructuredMeta(
+        id="fred_dgs10", ticker="_MACRO", producer="fetch",
+        title="10-year Treasury", source="FRED",
+        url="https://fred.stlouisfed.org/series/DGS10",
+        provider_tool="fredapi", fetch_cmd="uv run python sra.py prefetch-macro",
+        fetched_at=NOW.isoformat(), as_of=NOW.date().isoformat()), {"v": 4.72})
+
+    add_questions(ticker_dir, "valuation", ["What risk-free rate?"],
+                  round_=1, origin="seed")
+    qhash = load_questions(ticker_dir)[0]["hash"]
+    entry = mark_answered(ticker_dir, qhash, ["fred_dgs10"])
+
+    assert entry["status"] == "answered"
+    assert entry["answer_source_ids"][0]["id"] == "fred_dgs10"
+
+
+def test_an_id_in_neither_ticker_nor_macro_is_still_refused(tmp_path: Path) -> None:
+    """The fallback widens the reach; it does not stop the check being a check."""
+    ticker_dir = tmp_path / "PANW"
+    (ticker_dir / "research").mkdir(parents=True)
+    (tmp_path / "_MACRO").mkdir()
+
+    add_questions(ticker_dir, "valuation", ["What rate?"],
+                  round_=1, origin="seed")
+    qhash = load_questions(ticker_dir)[0]["hash"]
+
+    with pytest.raises(ValueError, match="_MACRO"):
+        mark_answered(ticker_dir, qhash, ["fred_nonexistent"])

@@ -221,8 +221,28 @@ def _bronze_stamp(ticker_dir: Path, artifact_id: str) -> dict:
             f"{artifact_id!r} is silver (derived/): mark-answered accepts bronze "
             f"ids only (§14.1) — a question answered from derived/ would cite "
             f"model-mediated content as evidence")
+
+    # Then `_MACRO`, the same reach a citation has. `validate` resolves
+    # `fred_dgs10` on a ticker page (§8.4 check 4), so a shorter reach here made
+    # an id legal to cite in prose and fatal to record as the evidence that
+    # closed the question. A TOST valuation answer cited the FRED ten-year for
+    # its WACC and could not be closed against it.
+    macro = ticker_dir.parent / "_MACRO"
+    if macro.is_dir() and macro.resolve() != ticker_dir.resolve():
+        macro_structured = macro / "structured" / f"{artifact_id}.json"
+        if macro_structured.exists():
+            meta, _ = read_structured(macro_structured)
+            stamp = meta.fetched_at or meta.computed_at
+            key = "fetched_at" if meta.fetched_at else "computed_at"
+            return {"id": artifact_id, key: stamp}
+        macro_source = resolve_source(macro, artifact_id)
+        if macro_source is not None:
+            meta, _ = read_source(macro_source)
+            return {"id": artifact_id, "fetched_at": meta.fetched_at}
+
     raise ValueError(
-        f"{artifact_id!r} resolves to no bronze artifact under {ticker_dir}")
+        f"{artifact_id!r} resolves to no bronze artifact under {ticker_dir} "
+        f"or _MACRO")
 
 
 def mark_answered(

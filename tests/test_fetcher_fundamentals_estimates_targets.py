@@ -288,3 +288,82 @@ def test_targets_passes_validation(tmp_ticker_dir: Path):
     fetch_targets("PANW", tmp_ticker_dir, state,
                   targets_provider=lambda t: FAKE_TARGETS, now=NOW)
     assert _errors(tmp_ticker_dir) == []
+
+
+# --- provider enterprise value vs the snapshot's own inputs --------------------
+
+def test_computed_ev_is_added_from_same_provider_inputs() -> None:
+    """§6.4 forbids CROSS-provider arithmetic; market cap, debt and cash all come
+    from one `info` snapshot, so reconciling them here is same-provider."""
+    from lib.fetchers.fundamentals import _add_computed_ev
+
+    ratios = {"highlights": {"market_cap": 100.0, "enterprise_value": 90.0,
+                             "total_cash": 10.0, "total_debt": 0.0,
+                             "revenue_ttm": 50.0, "ebitda": 10.0},
+              "valuation": {}}
+
+    assert _add_computed_ev(ratios) is None          # consistent: no warning
+    assert ratios["highlights"]["enterprise_value_computed"] == 90.0
+    assert ratios["valuation"]["ev_to_revenue_computed"] == 1.8
+    assert ratios["valuation"]["ev_to_ebitda_computed"] == 9.0
+
+
+def test_diverging_provider_ev_warns_and_keeps_both_figures() -> None:
+    """TOST's real 2026-08-12 snapshot. The provider's EV implies $840M of net
+    cash against its own $1,713M — every EV multiple downstream inherited it,
+    and a synthesizer three stages later was what noticed."""
+    from lib.fetchers.fundamentals import _add_computed_ev
+
+    ratios = {"highlights": {"market_cap": 19_287.9e6, "enterprise_value": 18_447.6e6,
+                             "total_cash": 1_713.0e6, "total_debt": 0.0,
+                             "revenue_ttm": 6_800e6, "ebitda": 487e6},
+              "valuation": {}}
+
+    warning = _add_computed_ev(ratios)
+
+    assert warning is not None and "enterprise_value" in warning
+    assert "+5.0%" in warning
+    # The provider's figure is NOT overwritten — the artifact stays a pass-through.
+    assert ratios["highlights"]["enterprise_value"] == 18_447.6e6
+    assert ratios["highlights"]["enterprise_value_computed"] == 17_574.9e6
+
+
+def test_computed_ev_is_skipped_when_an_input_is_missing() -> None:
+    """Nulls stay null (§6.4): an absent input yields no computed figure and no
+    warning, rather than a zero that reads as a measurement."""
+    from lib.fetchers.fundamentals import _add_computed_ev
+
+    ratios = {"highlights": {"market_cap": None, "total_cash": 5.0,
+                             "total_debt": 0.0}, "valuation": {}}
+
+    assert _add_computed_ev(ratios) is None
+    assert "enterprise_value_computed" not in ratios["highlights"]
+
+
+# --- per-attribute target warnings --------------------------------------------
+
+def test_targets_full_payload_warns_about_nothing(tmp_ticker_dir: Path):
+    state = init_state(tmp_ticker_dir, "PANW")
+    ok, _paths, warning = fetch_targets(
+        "PANW", tmp_ticker_dir, state,
+        targets_provider=lambda t: FAKE_TARGETS, now=NOW)
+
+    assert (ok, warning) == (True, None)
+
+
+def test_empty_rating_actions_warn_while_the_fetch_still_succeeds(tmp_ticker_dir: Path):
+    """TOST, 2026-08-12. Only the all-three-empty guard used to fire, so an empty
+    `upgrades_downgrades` beside populated targets persisted as a clean success —
+    and the artifact's stale $25 low reached a published report as current."""
+    state = init_state(tmp_ticker_dir, "PANW")
+    thin = dict(FAKE_TARGETS, upgrades_downgrades=pd.DataFrame())
+
+    ok, paths, warning = fetch_targets("PANW", tmp_ticker_dir, state,
+                                       targets_provider=lambda t: thin, now=NOW)
+
+    assert ok is True                      # a partial payload is a §22.3 degradation
+    assert paths                           # and the artifacts still write
+    assert warning is not None
+    assert "upgrades_downgrades empty" in warning
+    assert "may be stale" in warning
+    assert "price_targets empty" not in warning     # targets were fine — say so

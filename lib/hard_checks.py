@@ -111,6 +111,44 @@ def _check_max_length_prose(value: str, text: str) -> str | None:
             f"(citation ids excluded; raw length is {len(text)})")
 
 
+def _check_max_sentence_words(value: str, text: str) -> str | None:
+    """Word cap per SENTENCE — the runaway guard STYLE.md rule 1 lacked.
+
+    Rule 1 ("one idea per sentence") and the *Compressed past readability*
+    table were both in force when a TOST profile shipped a 47-word sentence
+    stacking three appositives on an abstract-noun subject. A budget only a
+    critic counts does not bind: the same run's risk_news critique found seven
+    antitheses against a budget of one.
+
+    This catches only the extreme tail. The ordinary failures — a stacked
+    appositive, a deleted `that`, a frame that survives the delete test — are
+    shorter than any sane cap and belong to the critique and clarity passes.
+    Tables are skipped: a row is not a sentence, and its cells are deliberately
+    telegraphic.
+    """
+    try:
+        threshold = int(value)
+    except ValueError:
+        return f"max_sentence_words: threshold {value!r} is not a number"
+
+    prose = CITATION_RE.sub("", text)
+    lines = [line for line in prose.splitlines()
+             if not line.lstrip().startswith(("|", "#", ">"))]
+    # Abbreviations are rare in this prose and a false split only shortens a
+    # sentence, which cannot manufacture a failure.
+    sentences = re.split(r"(?<=[.!?])\s+", " ".join(lines))
+
+    worst = ""
+    for sentence in sentences:
+        if len(sentence.split()) > len(worst.split()):
+            worst = sentence
+    count = len(worst.split())
+    if count <= threshold:
+        return None
+    return (f"max_sentence_words: a sentence runs {count} words, over the "
+            f"{threshold} cap — {worst.strip()[:200]!r}")
+
+
 def _check_not_regex(pattern: str, text: str) -> str | None:
     match = re.search(pattern, text, re.MULTILINE)
     if match is None:
@@ -289,6 +327,8 @@ def run_checks(text: str, rules: list, base_dir: Path, *,
             problem = _check_length(name, value, text)
         elif name == "max_length_prose":
             problem = _check_max_length_prose(value, text)
+        elif name == "max_sentence_words":
+            problem = _check_max_sentence_words(value, text)
         elif name == "startswith":
             first = _first_line(text)
             problem = (None if first.startswith(value)

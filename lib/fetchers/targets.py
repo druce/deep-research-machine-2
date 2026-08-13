@@ -87,6 +87,23 @@ def fetch_targets(
     if not targets and not actions and not grid:
         return False, [], f"no price target data for {ticker.upper()}"
 
+    # Per-attribute warnings, because the all-three-empty guard above is the only
+    # thing that used to fire. TOST fetched on 2026-08-12 with an empty
+    # `upgrades_downgrades` and populated targets: it persisted as a clean success
+    # while the provider held 248 action rows, and the artifact's $25 low — a
+    # figure no live analyst held, against 14 post-Q2 raises spanning $34-$45 —
+    # reached a published report as though it were current. A partial payload is a
+    # degradation (§22.3), so the run continues and the artifacts still write; the
+    # caller turns this string into `warnings[kind]`.
+    thin = []
+    if not targets:
+        thin.append("price_targets empty")
+    if not actions:
+        thin.append("upgrades_downgrades empty — rating actions unavailable, so "
+                    "any target low/high in this artifact may be stale")
+    if not grid:
+        thin.append("recommendations grid empty")
+
     url = f"https://finance.yahoo.com/quote/{ticker.upper()}/analysis"
     cmd = fetch_cmd(ticker, "targets")
     # No `period`: §6.4 admits only quarterly | annual | ttm, which are statement
@@ -108,4 +125,4 @@ def fetch_targets(
 
     record_fetch(state, "targets", ["price_targets_yahoo", "recommendations_yahoo"],
                  now, {"policy_days": 7})
-    return True, paths, None
+    return True, paths, ("; ".join(thin) if thin else None)
