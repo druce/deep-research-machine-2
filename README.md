@@ -3,11 +3,11 @@
 Writes a cited, chart-illustrated equity research report for a ticker, from a
 persistent per-ticker knowledge base that grows across runs.
 
-It is a skills-based agent in the shape of Anthropic's
+It is a skills-based agent that draws inspiration from Anthropic's
 [equity-research plugin](https://github.com/anthropics/financial-services/tree/main/plugins/vertical-plugins/equity-research/skills),
 combined with the wiki-centred research loop from Karpathy's
 [LLM wiki flow](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f):
-agents do not write the report from what they happen to remember reading. They
+agents do not write the report directly from sources. They
 write facts into a wiki as they learn them, and the report is composed from the
 wiki afterwards.
 
@@ -16,8 +16,8 @@ wiki afterwards.
 $133.29 price.
 
 The organizing rule is that **every sentence in the report terminates in a
-fetched document**. Model prose is never evidence, however good it is: a research
-answer is an audit record, a wiki page is a working note, and only bytes a
+fetched document**. Wiki prose is never evidence, however good it is: a research
+answer is an audit record, a wiki page is a working note, and only data a
 fetcher pulled off the wire can be cited.
 
 `sra6-spec.md` is authoritative. This README is the map.
@@ -114,14 +114,16 @@ Defined in `sections.yaml` with per-section seed questions and hard checks.
 
 ---
 
-## What this adds to the reference flow
+## What this adds to the Anthropic reference flow
 
-**Real market data, from provider APIs.** FMP for peers and transcripts,
-yfinance for statements, prices and estimates, SEC EDGAR direct for filings,
-FRED for macro, and **OpenBB** for ownership, insider trades and short interest —
-the one thing nothing else covered, and which the writing phase previously had to
-approximate from news articles. OpenBB normalizes ~50 upstreams behind one
-schema, so FINRA short interest and FMP Form 4 data arrive comparably shaped.
+**Bronze/Silver/Gold data pipeline** with metadata preserving link chain back to 
+bronze primary source data as we summarize and synthesize research.
+
+**LLM-Wiki as reference database** . 
+**Incremental updates.** The wiki is durable, so when news breaks you refresh the
+affected evidence, run directed research on the specific question, redraft the
+sections it touched, and re-assemble — without repeating the research phase.
+`/sra-update` does this; a full cold build is the start, not the full cadence.
 
 **A critic-optimizer loop per section, then again on the whole report.** Two
 levels, because they catch different things: a section critic enforces that
@@ -133,17 +135,17 @@ itself a scored evaluation, an effective eval makes the writing prompts
 optimizable in the Karpathy autoresearch style: the critic's score is the
 objective, the prompts are the parameter.
 
-**Incremental updates.** The wiki is durable, so when news breaks you refresh the
-affected evidence, run directed research on the specific question, redraft the
-sections it touched, and re-assemble — without repeating the research phase.
-`/sra-update` does this; a full cold build is the exception, not the rhythm.
-
 **Everything reproducible is code.** `sra.py` owns fetching, freshness, ID
 minting, citation resolution, validation, chart rendering and assembly. Skills
 and agents own judgment only, and never do their own bookkeeping — every state
 transition goes through a CLI command, so it is testable offline and identical
 every run.
 
+**Low-cost market data, from provider APIs.** FMP for peers and transcripts,
+yfinance for statements, prices and estimates, SEC EDGAR direct for filings,
+FRED for macro, and **OpenBB** for easy integration of manysources. OpenBB 
+normalizes ~50 upstreams behind one schema, so FINRA short interest and FMP 
+Form 4 data arrive comparably shaped.
 ---
 
 ## The knowledge base
