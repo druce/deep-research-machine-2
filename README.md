@@ -117,36 +117,37 @@ Defined in `sections.yaml` with per-section seed questions and hard checks.
 
 ## What this adds to the Anthropic reference flow
 
-**Bronze/Silver/Gold data pipeline** with metadata preserving link chain back to 
-bronze primary source data as we summarize and synthesize research.
+- **LLM-Wiki as durable human-readable, human-editable reference**. 
 
-**LLM-Wiki as reference database** . 
-**Incremental updates.** The wiki is durable, so when news breaks you refresh the
+- **Bronze/Silver/Gold data pipeline** with metadata preserving link chain back to 
+bronze primary source data as we summarize and synthesize research.
+  
+- **Incremental updates.** The wiki is durable, so when news breaks you refresh the
 affected evidence, run directed research on the specific question, redraft the
 sections it touched, and re-assemble — without repeating the research phase.
 `/sra-update` does this; a full cold build is the start, not the full cadence.
 
-**A critic-optimizer loop per section, then again on the whole report.** Two
-levels, because they catch different things: a section critic enforces that
+- **A critic-optimizer loop per section, then again on the whole report.** Section critic enforces that
 section's word target, evidence and argument, while the report-level pass sees
-the repetition and contradiction between sections. This is what makes the output
+the repetition and contradiction between sections. This makes the output
 *steerable* — length, style and focus are prompt parameters rather than
 properties of whatever the model produced. And because the critique step is
 itself a scored evaluation, an effective eval makes the writing prompts
 optimizable in the Karpathy autoresearch style: the critic's score is the
 objective, the prompts are the parameter.
 
-**Everything reproducible is code.** `sra.py` owns fetching, freshness, ID
+- **Everything deterministic is code.** `sra.py` owns fetching, freshness, ID
 minting, citation resolution, validation, chart rendering and assembly. Skills
 and agents own judgment only, and never do their own bookkeeping — every state
 transition goes through a CLI command, so it is testable offline and identical
 every run.
 
-**Low-cost market data, from provider APIs.** FMP for peers and transcripts,
+- **Low-cost market data, from provider APIs.** FMP for peers and transcripts,
 yfinance for statements, prices and estimates, SEC EDGAR direct for filings,
 FRED for macro, and **OpenBB** for easy integration of manysources. OpenBB 
 normalizes ~50 upstreams behind one schema, so FINRA short interest and FMP 
 Form 4 data arrive comparably shaped.
+
 ---
 
 ## The knowledge base
