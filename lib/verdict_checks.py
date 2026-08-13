@@ -8,6 +8,11 @@ verdict card and one section.
 
 Parsing the second figure out of model-written prose is too fragile to gate on,
 so the scenario numbers live in `verdict.json` and this module checks them.
+
+The same file carries the front-matter thesis pillars (§18.2), and they are
+gated here for the same reason: a pillar whose claim carries no number is a
+heading wearing a claim's clothes, and that is checkable in JSON and not in
+prose.
 """
 
 from __future__ import annotations
@@ -21,6 +26,20 @@ DIVERGENCE_THRESHOLD = 0.15
 # Short enough that one honest paragraph clears it; long enough that "the DCF
 # governs" does not.
 MIN_RECONCILIATION_WORDS = 40
+
+# The front-matter thesis pillars (§18.2). Three is the fewest that reads as a
+# case rather than a headline; four is where a one-minute scan stops being one
+# minute.
+MIN_PILLARS = 3
+MAX_PILLARS = 4
+
+# A claim long enough to need two breaths is not a claim, it is the support.
+MAX_CLAIM_WORDS = 40
+
+# Fewer than three sentences and the pillar asserts without evidence; more than
+# five and the reader is reading the section instead of scanning the front page.
+MIN_SUPPORT_SENTENCES = 3
+MAX_SUPPORT_SENTENCES = 5
 
 
 def _number(value: object) -> float | None:
@@ -52,13 +71,90 @@ def _mentions(text: str, value: float) -> bool:
     return re.sub(r"\D", "", f"{value:.2f}") in re.sub(r"\D", "", text)
 
 
+# Periods that end an abbreviation, not a sentence. Without this the counter
+# reads "SpaceX sells to the U.S. Air Force." as two sentences and fails a
+# pillar that is correctly built.
+_ABBREVIATIONS = ("U.S.", "U.K.", "U.N.", "e.g.", "i.e.", "vs.", "Inc.",
+                  "Corp.", "Co.", "Ltd.", "No.", "St.", "Mr.", "Ms.", "Mrs.",
+                  "Dr.", "Jr.", "Sr.", "Q1.", "Q2.", "Q3.", "Q4.")
+
+# A boundary is terminal punctuation followed by whitespace or the end of the
+# string. Requiring the whitespace is what keeps "$38.13" and "4.5%" whole.
+_SENTENCE_END_RE = re.compile(r"[.!?][\"')\]]*(?:\s+|$)")
+
+
+def _sentences(text: str) -> int:
+    """How many sentences `text` contains, for a range check rather than a parse."""
+    stripped = text
+    for abbreviation in _ABBREVIATIONS:
+        stripped = stripped.replace(abbreviation, abbreviation.replace(".", ""))
+    return len(_SENTENCE_END_RE.findall(stripped.strip()))
+
+
+def _check_pillars(verdict: dict) -> list[str]:
+    """Every problem with the thesis pillars, in reading order.
+
+    Absence is not a failure. The conclusion prompt requires pillars, but a
+    report assembled before they existed still has to pass the gold gate, and
+    the same reasoning governs `scenario_weighted_value` above: gate the shape
+    of what is there, never the presence of what an older run could not know to
+    write.
+    """
+    pillars = verdict.get("pillars")
+    if pillars is None:
+        return []
+
+    if not isinstance(pillars, list):
+        return [f"pillars must be a list of objects, got {type(pillars).__name__}"]
+
+    failures: list[str] = []
+    if not MIN_PILLARS <= len(pillars) <= MAX_PILLARS:
+        failures.append(
+            f"pillars has {len(pillars)} entries; the front page carries "
+            f"{MIN_PILLARS}-{MAX_PILLARS}")
+
+    for index, pillar in enumerate(pillars, start=1):
+        where = f"pillar {index}"
+        if not isinstance(pillar, dict):
+            failures.append(f"{where} is not an object")
+            continue
+
+        claim = str(pillar.get("claim") or "").strip()
+        support = str(pillar.get("support") or "").strip()
+
+        if not claim:
+            failures.append(f"{where} has no claim")
+        else:
+            if not any(character.isdigit() for character in claim):
+                failures.append(
+                    f"{where} claim has no number in it — a claim a reader "
+                    f"cannot check is a heading: {claim!r}")
+            words = len(claim.split())
+            if words > MAX_CLAIM_WORDS:
+                failures.append(
+                    f"{where} claim runs {words} words; at most "
+                    f"{MAX_CLAIM_WORDS} — the rest belongs in its support")
+
+        if not support:
+            failures.append(f"{where} has no support")
+            continue
+
+        count = _sentences(support)
+        if not MIN_SUPPORT_SENTENCES <= count <= MAX_SUPPORT_SENTENCES:
+            failures.append(
+                f"{where} support is {count} sentences; "
+                f"{MIN_SUPPORT_SENTENCES}-{MAX_SUPPORT_SENTENCES} are required")
+
+    return failures
+
+
 def check_verdict(verdict: dict, valuation_md: str) -> list[str]:
     """Every coherence failure, in reading order. Empty means the card passes.
 
     Failures rather than a boolean: the caller turns them into findings, and a
     writer fixing them wants the list, not a verdict on the verdict.
     """
-    failures: list[str] = []
+    failures: list[str] = _check_pillars(verdict)
 
     probabilities = verdict.get("scenario_probabilities")
     if isinstance(probabilities, dict) and probabilities:

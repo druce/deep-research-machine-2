@@ -106,6 +106,13 @@
 **Key risk** {{ verdict.key_risk }}
 :::
 {% endif %}
+{% if verdict.pillars %}
+::: {.pillars}
+{% for pillar in verdict.pillars %}
+**{{ pillar.claim }}** {{ pillar.support }}
+{% endfor %}
+:::
+{% endif %}
 
 *Rating, fair value and probabilities are the report writer's own assumptions, not company guidance or
 sell-side consensus. See the Conclusion for the reasoning and the tests that would falsify it.*

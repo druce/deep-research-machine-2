@@ -2,6 +2,15 @@
 # File order of `sections:` = report order (§1..§7). word_target_base is the
 # `long` preset; length_presets multiply it. hard_checks syntax = lib/hard_checks
 # rules (Phase 5); max-length caps there count CHARACTERS (~8 chars/word with tables).
+#
+# The targets are weighted toward the sections that carry judgment and away from
+# the ones that carry description: §§1-4 total 5,100 against §§5-7's 7,700. Two
+# reasons. A descriptive section is more readable for being shorter — there is no
+# prose that reads better than the paragraph you did not write — and the sections
+# a reader returns to are the ones deriving a number. The targets also track what
+# writers actually produce: on the SPCX build, competitive drafted 1,261 against a
+# 1,750 target and valuation drafted 3,015 against 2,300. A target a section
+# misses every run is not a target, it is a standing critique item.
 
 length_presets:
   short: 0.40
@@ -107,7 +116,7 @@ sections:
   profile:
     title: "Company Profile"
     wiki_page: profile
-    word_target_base: 1000
+    word_target_base: 850
     seed_questions:
       - "When was the company founded, by whom, and which milestones (IPO, major acquisitions with dollar amounts, strategic pivots) directly explain its current competitive position?"
       - "What are the current products, services, customer segments and geographies, and roughly how much revenue does each contribute?"
@@ -151,7 +160,7 @@ sections:
   business_model:
     title: "Business Model"
     wiki_page: business_model
-    word_target_base: 1300
+    word_target_base: 1200
     seed_questions:
       - "What is the revenue breakdown by segment and by geography ($ and %, most recent fiscal year and TTM), and which segments are growing or shrinking fastest?"
       - "What are gross and operating margins by segment, how have they trended over three years, and what drives the changes — mix, pricing, opex, incentives?"
@@ -202,7 +211,7 @@ sections:
   competitive:
     title: "Competitive Landscape"
     wiki_page: competitive
-    word_target_base: 1750
+    word_target_base: 1600
     seed_questions:
       - "Who are the top direct competitors in each major segment, with revenue scale and market share relative to the company?"
       - "Where is unit and dollar market share being gained or lost, to whom, and is each shift structural (product, brand, price) or cyclical?"
@@ -252,7 +261,7 @@ sections:
   supply_chain:
     title: "Supply Chain Positioning"
     wiki_page: supply_chain
-    word_target_base: 1650
+    word_target_base: 1450
     seed_questions:
       - "Who are the key suppliers and manufacturing partners, and which inputs are single-source or limited-source dependencies?"
       - "What is the geographic footprint of the supply chain, and what tariff, sanctions and trade-route exposure does it carry — quantified where the company discloses it?"
@@ -297,7 +306,7 @@ sections:
   financial:
     title: "Financial Strength"
     wiki_page: financial
-    word_target_base: 2300
+    word_target_base: 2400
     seed_questions:
       - "What are the 3-5 year trends in revenue, gross/operating/net margins and free cash flow, and what drove each inflection?"
       - "Does net income convert to cash — what are OCF/NI and FCF/NI over 3+ years, and which specific line items (stock comp, accruals, deferred taxes, working capital, one-offs) explain any gap?"
@@ -346,7 +355,7 @@ sections:
   valuation:
     title: "Valuation"
     wiki_page: valuation
-    word_target_base: 2300
+    word_target_base: 2600
     seed_questions:
       - "What do consensus FY+1/FY+2 EPS and revenue estimates imply for growth and margins, and how have revisions trended over 30/90 days — both the level move and the breadth of analysts revising each way?"
       - "What are the current multiples (P/E, EV/EBITDA, EV/Revenue, PEG) versus the stock's own 3-5 year history and versus named peers, and what explains any premium or discount?"

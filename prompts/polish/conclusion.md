@@ -73,9 +73,38 @@ one:
   "thesis": "one sentence, under 30 words",
   "key_risk": "one sentence, under 30 words",
   "base_case_probability": 0.0,
-  "vs_consensus": "above | in line with | below"
+  "vs_consensus": "above | in line with | below",
+  "pillars": [
+    {"claim": "one sentence with a number in it, under 40 words",
+     "support": "three to five sentences"}
+  ]
 }
 ```
+
+### `pillars` — the one-minute read
+
+Three or four, rendered on the front page directly under the verdict card. They
+are the reason the rating is what it is, in the order a reader should meet them.
+
+`claim` is a sentence a reader could disagree with, and it carries a figure:
+"Adjusted EBITDA excludes depreciation on satellites rebought every five years,
+which is $2.75 billion a year." Not "Margins are the key issue" — that names a
+topic and makes the reader read on to learn the finding, which is the defect
+*Leads* in `STYLE.md` exists to prevent.
+
+`support` is three to five sentences carrying the numbers behind the claim. Same
+prose rules as everywhere else: complete sentences, "we" not "I", no invented
+metaphor, no kicker to close.
+
+These are the report's own argument restated for someone who will read nothing
+else, so every figure in them is already established in a section and cited
+there. **Do not introduce a number here that appears nowhere else** — the pillars
+carry no footnotes of their own, and a fact that lives only on the front page is
+a fact the reader cannot check.
+
+A gate in `lib/verdict_checks.py` rejects a claim with no digit in it, a claim
+over 40 words, a support outside three to five sentences, and a set that is not
+three or four pillars.
 
 `current_price` comes from the price or target artifacts, not from memory. Fill
 `implied_return_pct` with your own arithmetic — but know that the driver

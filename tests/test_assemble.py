@@ -423,3 +423,53 @@ def test_cli_assemble_exits_one_when_the_run_does_not_exist(tmp_path: Path, caps
     assert sra.main(["assemble", "PANW", "--data-root", str(tmp_path),
                      "--run", "2020-01-01"]) == 1
     assert "no report run" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------
+# Front-matter thesis pillars (§18.2) — the one-minute read under the card.
+# --------------------------------------------------------------------------
+
+def _card(**overrides) -> dict:
+    """The minimum verdict the template will render without an undefined."""
+    base = {"rating": "Sell", "base_case_probability": None}
+    base.update(overrides)
+    return base
+
+
+PILLARS = [
+    {"claim": "Adjusted EBITDA excludes $2.75 billion a year of depreciation.",
+     "support": "One. Two. Three."},
+    {"claim": "ROIC is negative 6.3% against a 12% hurdle.",
+     "support": "Four. Five. Six."},
+]
+
+
+def test_pillars_render_as_a_fenced_div_of_paragraphs() -> None:
+    """Each pillar is its own paragraph so pandoc can mark it; the claim leads
+    it in bold and stays inline, which is what a skimming reader reads."""
+    from lib.render.assemble import render_markdown
+
+    markdown = render_markdown({"verdict": _card(pillars=PILLARS)})
+
+    assert "::: {.pillars}" in markdown
+    body = markdown.split("::: {.pillars}")[1].split(":::")[0]
+    assert "\n\n**Adjusted EBITDA excludes $2.75 billion" in body
+    assert "\n\n**ROIC is negative 6.3%" in body
+
+
+def test_a_verdict_without_pillars_emits_no_pillar_block() -> None:
+    """Runs assembled before pillars existed must render unchanged."""
+    from lib.render.assemble import render_markdown
+
+    assert ".pillars" not in render_markdown({"verdict": _card()})
+
+
+def test_pillar_claims_are_not_promoted_to_headings() -> None:
+    """The carve-out in STYLE.md is scoped to bold-inline, not to a heading:
+    an argued heading is the defect rule 7 exists to prevent."""
+    from lib.render.assemble import render_markdown
+
+    markdown = render_markdown({"verdict": _card(pillars=PILLARS)})
+    body = markdown.split("::: {.pillars}")[1].split(":::")[0]
+
+    assert not any(line.startswith("#") for line in body.splitlines())

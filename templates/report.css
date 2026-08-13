@@ -481,6 +481,28 @@ tbody tr:last-child td { border-bottom: 1px solid var(--navy); }
 }
 .callout.caution p:first-child > strong:first-child { color: var(--caution); }
 
+/* Thesis pillars — the one-minute read under the verdict card (§18.2). The
+   claim leads its own paragraph in bold and stays INLINE. Promoting it to a
+   block kicker the way .callout does above would turn every claim into a
+   heading, and an argued heading is exactly what STYLE.md rule 7 keeps out of
+   this report: the scan line is a sentence the reader can check, not a label. */
+.pillars { margin: 1.4em 0; }
+.pillars p {
+  max-width: none;
+  position: relative;
+  padding-left: 18px;
+  margin-bottom: .9em;
+}
+.pillars p:last-child { margin-bottom: 0; }
+.pillars p::before {
+  content: "\25A0";
+  position: absolute;
+  left: 0;
+  color: var(--info);
+  font-size: 10px;
+  line-height: 1.9;
+}
+
 blockquote {
   margin: 1.2em 0;
   padding: 10px 14px;
@@ -617,6 +639,7 @@ thead { display: table-header-group; }
 tfoot { display: table-footer-group; }
 tr { break-inside: avoid; }
 .kpi, .callout, .masthead, figure { break-inside: avoid; }
+.pillars p { break-inside: avoid; }
 h1, h2, h3, h4 { break-after: avoid; }
 
 /* --------------------------------------------------------------------------

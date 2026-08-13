@@ -78,6 +78,24 @@ Worked examples of each failure are in `STYLE.md` under *Compressed past
 readability* — read them before you decide to tighten a sentence rather than cut
 a point. The three that shipped cost sixteen words to fix, across a whole report.
 
+## TABLES
+
+**A section over 800 words with no table is a defect.** Not a style preference — a
+1,400-word wall of prose is the form in which a reader misses the number you spent
+the section establishing.
+
+You control tables; you do not control charts. The chartbook is selected after every
+section is written, so never write "as the chart below shows" or leave a placeholder
+for one. Write the table.
+
+What earns a table: a series over time, the same metric across named peers, a
+scenario grid, a build from inputs to a total, a ranked list with a number per row.
+What does not: two facts, which are a sentence.
+
+Every table gets a source line under it — the convention is in `STYLE.md` under
+*Every table carries a source line*, and the cells keep their `[^bronze-id]`
+footnotes either way.
+
 ## OWNERSHIP AND TENSION
 
 The seven sections are written in parallel by agents that cannot see each
@@ -186,6 +204,10 @@ as an assertion with no number behind it.
 - **Readability**: read the three longest sentences. Any that needs a second
   pass to parse is a defect, and the fix is to split it, not to shorten it. Quote
   each one and give the split.
+- **Scannability**: a draft over 800 words with no table is a defect — say which
+  passage should become one and what its columns are. Likewise any run of more
+  than about 800 words with no `###` subheading and no table: the reader has no
+  purchase on it. Neither is fixed by adding words; a table usually removes some.
 - **Voice**: the dominant failure here is not "In conclusion" or "robust" — it is
   the epigrammatic essay voice described under *Voice and sentence mechanics* in
   `STYLE.md`. Count these in the draft. Report all of them as **one** numbered

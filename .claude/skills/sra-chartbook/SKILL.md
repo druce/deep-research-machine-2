@@ -58,6 +58,15 @@ judgment over files, with no web or MCP needed — and this prompt:
 > the rubric specifies. Every `name` must match a candidate manifest that
 > exists; `order` starts at 1 and strictly increases.
 >
+> **Cover every numbered section.** A section with no exhibit is a stretch of
+> the report a reader cannot scan, and the last SPCX run left four of them —
+> §§1, 2 and 4 and the conclusion — while shipping only 8 exhibits against this
+> floor of 10. Before you finish, list the seven sections and check each has at
+> least one. Where no candidate can honestly serve a section, do not force one:
+> name the section in your log and say which renderer is missing. A missing
+> producer is a fixable gap; a chart that does not carry that section's
+> argument is not.
+>
 > You cannot see the PNGs. Judge from the manifests and the wiki.
 >
 > Your task log (§23.4): stamp `date -u +%Y-%m-%dT%H:%M:%SZ` before you start
@@ -85,17 +94,23 @@ selected = book["selected"]
 missing = [s["name"] for s in selected
            if not (d / "charts" / "candidates" / f"{s['name']}.png").exists()]
 orders = [s["order"] for s in selected]
+from lib.sections import load_sections
+wanted = list(load_sections()["sections"])
+covered = {s["section"] for s in selected}
 print(json.dumps({
     "selected": len(selected),
     "missing_png": missing,
     "orders_strictly_increasing": orders == sorted(set(orders)),
-    "sections": sorted({s["section"] for s in selected}),
+    "sections": sorted(covered),
+    "sections_without_exhibit": [s for s in wanted if s not in covered],
 }, indent=2))
 PY
 ```
 
 Anything wrong — a missing PNG, a repeated `order`, an unknown section — goes
-back to the same subagent to fix. Do not hand-edit `chartbook.json`; the
+back to the same subagent to fix. A non-empty `sections_without_exhibit` goes
+back too, unless the subagent's log already names that section and says which
+renderer is missing. Do not hand-edit `chartbook.json`; the
 selection is the subagent's work and a silent repair hides a rubric it
 misunderstood.
 

@@ -110,6 +110,14 @@ above all stay. Only the syntax changes.
     between claim, evidence and implication is the analysis, and stripping it to fragments is
     the same defect as compressing a sentence past readability.
 
+**One exception to 7 and 12, and only one: the front-matter thesis pillars.** The three or four
+blocks under the verdict card are written `**Claim in one sentence, with a figure in it.**`
+followed by three to five sentences of support. They are the report's one-minute read, and the
+bolded claim is what a scanning reader gets instead of a heading. This carve-out is scoped to
+that block, which is generated from `pillars` in `verdict.json` and never written by a section
+writer. Everywhere else in the report, a bolded claim leading a paragraph is the argued-heading
+defect under 7, and a bulleted case is the defect under 12. Neither rule bends inside a section.
+
 ### Rewrites
 
 | Written like an LLM | Written like an analyst |
@@ -248,6 +256,26 @@ table is built from each peer's own bronze artifacts, and cites them.
 - Large numbers: "$34.3 billion", not "$34,300,000,000"
 - Employee count: from the profile artifact, formatted with comma separators
 
+### Every table carries a source line
+
+Directly under each table, one italic line naming where the numbers came from, in the reader's
+terms and with the as-of date:
+
+```markdown
+*Source: Q2 2026 10-Q; consensus per Yahoo Finance, as of August 12, 2026. FY2027E is the
+report writer's estimate.*
+```
+
+This is a readability rule, not a provenance one — the footnotes in the cells already carry the
+contract, and they still do. What the source line buys is a reader who can trust an exhibit
+without leaving it, and prose that no longer has to spend a clause on attribution, which
+*Audience and stance* above already asks you to keep sparse.
+
+Name the source, never the artifact: "per the Q2 10-Q", not the id or the filename. The
+`internal_filenames` hard check rejects the latter, in a source line exactly as in a sentence.
+Where a table mixes reported and estimated columns, say which is which here — that is the
+sentence the `A`/`E` suffixes save you from writing in the body.
+
 ## Number formatting
 
 - **Stock prices**: Always format to nearest penny (2 decimal places), e.g., "$328.47"
@@ -257,6 +285,13 @@ table is built from each peer's own bronze artifacts, and cites them.
 - **Ratios (P/E, EV/EBITDA)**: 1 decimal place, e.g., "18.3x"
 - **Share counts**: Express in millions or billions, e.g., "1.2 billion shares outstanding"
 - **Superscripts**: Use HTML `<sup>` tags, e.g., `<sup>1</sup>`, not caret syntax (`^1^`)
+- **Years in tables and chart axes carry `A` or `E`**: `FY2025A` for a reported period,
+  `FY2027E` for any projected one — consensus, guidance and your own estimate alike. A column
+  header is where the reader decides whether to trust a number, and `FY2027` alone does not
+  tell them. This is the tabular form of the reported/guidance/consensus/estimate distinction
+  below, not a replacement for it: in a table the suffix does the work, and in prose the
+  wording still does. Where an `E` column is consensus rather than the report writer's own
+  figure, the table's `Source:` line says so.
 
 - **The report refers to its author as "the report writer", never "the analyst".** Guidance
   elsewhere in this file about writing *like* a sell-side analyst describes voice, not
