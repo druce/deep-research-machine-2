@@ -122,10 +122,10 @@ Defined in `sections.yaml` with per-section seed questions and hard checks.
 - **Bronze/Silver/Gold data pipeline** with metadata preserving link chain back to 
 bronze primary source data as we summarize and synthesize research.
   
-- **Incremental updates.** The wiki is durable, so when news breaks you refresh the
-affected evidence, run directed research on the specific question, redraft the
-sections it touched, and re-assemble — without repeating the research phase.
-`/sra-update` does this; a full cold build is the start, not the full cadence.
+- **Incremental updates.** The wiki is durable, so when news breaks you use `/sra-update` to refresh the
+affected evidence, run directed research on specific questiosn, redraft the
+sections it touched, and re-assemble — without repeating the full research phase.
+A full cold build is the kickstart, not the regular cadence.
 
 - **A critic-optimizer loop per section, then again on the whole report.** Section critic enforces that
 section's word target, evidence and argument, while the report-level pass sees
