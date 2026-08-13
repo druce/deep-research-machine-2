@@ -27,7 +27,7 @@ fetcher pulled off the wire can be cited.
 ## The pipeline
 
 ```mermaid
-flowchart LR
+flowchart TD
     start([ticker]):::ep --> f1
 
     subgraph fetch ["1 · Fetch — the things we always want"]
@@ -77,9 +77,10 @@ statements, prices, estimates, price targets, the calendar, peers, ownership and
 macro — each with its own freshness policy, so a re-run only re-fetches what has
 gone stale.
 
-**2 · Research.** The report body is seven sections. Each seeds a list of
+**2 · Research.** The report body is seven sections. Each is researched in parallel
+using a list of
 questions; agents answer them from the local corpus first, then the web and MCP
-data providers. Everything learned is written to the wiki, organized by section,
+data providers. Everything learned is written to the wiki, sorted by section,
 with each claim citing the source it came from. Up to three rounds — a round
 adds the questions the last one exposed.
 
