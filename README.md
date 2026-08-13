@@ -125,6 +125,7 @@ bronze primary source data as we summarize and synthesize research.
 - **Incremental updates.** The wiki is durable, so when news breaks you use `/sra-update` to refresh the
 affected evidence, run directed research on specific questiosn, redraft the
 sections it touched, and re-assemble — without repeating the full research phase.
+We have the ability to enforce staleness/freshness and enforce automatic refresh policy or explicitly update individual source artifacts.
 A full cold build is the kickstart, not the regular cadence.
 
 - **A critic-optimizer loop per section, then again on the whole report.** Section critic enforces that
