@@ -1,79 +1,43 @@
-Research and write a comprehensive, categorized risk analysis for {company} (ticker: {symbol}).
+# Topic: risks — {company} ({symbol})
 
-Use web search for current data. For each risk include: (a) clear description, (b) specific supporting evidence, (c) likelihood (high/medium/low), (d) potential financial impact, (e) mitigants.
+Read `prompts/prefetch_research/_shared.md` first; its search budget and its
+"numbers are not your job" rule apply here.
 
-## 1. Operational Risks
+**Start with the filing, not the web.** The 10-K's Item 1A is the company's own
+risk disclosure and it is already in `sources/` — find it with
+`sra.py manifest {symbol}` and read it. Leverage, maturities, coverage and
+currency exposure are in `structured/`. Take all of that as given.
 
-### Supply Chain Risks
-- Specific supply chain vulnerabilities: single-source suppliers, geographic concentration, raw material dependencies.
-- Recent supply chain disruptions and financial impact.
-- Inventory management effectiveness.
+Your job is the part Item 1A cannot do: which of those risks is **live now**,
+what a third party says about it, and what is missing from the company's own
+list. A risk restated from the 10-K with no external corroboration and no
+current status is not worth the words.
 
-### Key Person Risk
-- Dependence on specific executives.
-- Succession planning status.
-- Historical impact of leadership changes.
+## Seed queries
 
-### Technology & Execution Risks
-- Critical technology infrastructure risks (legacy systems, cybersecurity).
-- History of execution failures: missed launches, delayed projects, cost overruns.
-- IT spending relative to peers.
+1. `{company} risk factors analysis` — sell-side or independent commentary
+2. `{company} litigation OR class action OR regulatory investigation`
+3. `{company} regulation OR legislation` — the rules in flight in its industry
+4. `{company} competitive threat OR market share loss`
+5. `{company} customer concentration OR churn OR pricing pressure`
+6. `{company} debt covenant OR credit rating OR downgrade`
+7. `{company} cybersecurity incident OR data breach OR outage`
+8. `{company} key person OR succession OR executive departure`
 
-### Operational Concentration
-- Facility concentration: single points of failure.
-- Geographic concentration of operations or workforce.
-- Dependence on key contracts or customers.
+## What to extract
 
-## 2. Financial Risks
+Six to ten risks, no more, each as a short block:
 
-### Leverage & Liquidity
-- Current debt-to-equity, net debt, interest coverage with specific figures.
-- Debt maturity schedule.
-- Credit rating and recent actions.
-- Cash vs short-term obligations.
+- **the risk**, in one sentence, specific to this company — not "competition"
+  but the named competitor and the segment they are taking;
+- **evidence**: what makes it live, with a date and a URL;
+- **severity**: your judgement of likelihood and what it would cost, with the
+  figure sourced from `structured/` or the filing where one applies;
+- **mitigant**, where the company or a source names one.
 
-### Currency & Interest Rate Exposure
-- % of revenue and costs in foreign currencies.
-- Hedging strategy and effectiveness.
-- Interest rate sensitivity.
+Group under `## Operational`, `## Financial`, `## Regulatory`, `## Market`, and
+drop any heading you have nothing solid for. An empty heading is worse than a
+missing one.
 
-### Capital Allocation Risks
-- M&A track record with specific examples.
-- Share buyback timing vs valuation.
-- Dividend sustainability: payout ratio and FCF coverage.
-
-## 3. Regulatory Risks
-
-### Pending Legislation & Regulation
-- Specific pending bills or regulatory proposals.
-- Quantified potential financial impact.
-- Timeline for decisions.
-
-### Compliance & Legal
-- Ongoing litigation with material impact (specific cases, amounts).
-- Regulatory investigations or enforcement.
-- History of compliance failures.
-
-### Antitrust & Market Power
-- Antitrust scrutiny and jurisdictions.
-- Market concentration issues.
-- Impact of potential remedies.
-
-## 4. Market Risks
-
-### Cyclicality & Macro Sensitivity
-- Revenue sensitivity to GDP, consumer spending, business investment.
-- Performance during last two downturns.
-- Current business cycle positioning.
-
-### Competitive & Disruption Risks
-- Specific threats that could erode share within 2-3 years.
-- Pricing pressure and margin impact.
-- Technology disruption from startups or adjacent entrants.
-
-### Geopolitical & ESG Risks
-- Geopolitical exposure (specific countries, revenue at risk).
-- ESG risks: carbon, labor, governance.
-- Stakeholder activism trends.
-
-Every risk must be supported by concrete evidence specific to {company}.
+Note explicitly, under `[GAP]`, any risk you believe is real but could not
+source.

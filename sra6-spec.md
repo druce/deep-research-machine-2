@@ -178,7 +178,9 @@ evidence → synthesized knowledge → report
 ### **Non-goals**
 
 - No project-authored dynamic Workflow orchestration engine, DAG YAML, or generated interpreter JavaScript.
-- SRA6 may invoke the harness-provided `deep-research` Workflow (§11.2), but does not author it.
+- SRA6 does not invoke the harness-provided `deep-research` Workflow. It was used for prefetch
+  research and is retired (§11.2): being harness-owned, it accepts no budget, model or effort,
+  and it consumed 93% of the measured TOST build.
 - Orchestration uses skills plus the deterministic Python driver.
 - Two static Workflow scripts are permitted for quality loops (§15.2).
 - No SQLite state layer.
@@ -1235,8 +1237,45 @@ There is no third path.
   - `text/plain`,
   - `application/pdf`,
   - `application/xhtml+xml`,
-- Markdown output truncated at 200k characters,
+  - `application/json`, stored verbatim — SEC's own data endpoints serve it,
+- Markdown output truncated at 1.5M characters,
 - truncation recorded in source frontmatter.
+
+### **8.3.2 The failover ladder**
+
+A single HTTP client loses roughly a third of the URLs a research phase cites,
+almost all of it publisher bot-blocking rather than dead links, and §8.3 turns
+every loss into a claim that cannot be cited. `fetch-urls` therefore escalates
+through three transports, cheapest first:
+
+1. `httpx` (§8.3.1 as written above),
+2. headless Firefox via Playwright, stealth-configured — `lib/fetchers/browser_fetch.py`,
+3. Bright Data Web Unlocker, keyed on `BRIGHTDATA_API_KEY` — `lib/fetchers/brightdata_fetch.py`.
+
+Tiers 2 and 3 are optional at runtime: an uninstalled browser or an unset key is
+a named per-URL failure, never an exception, and the ladder falls through.
+
+Escalation is by allowlisted reason code. A transport failure (`http_4xx/5xx`,
+`transport_error`, redirect trouble), a thin body, or a heavier tier failing on
+its own terms all escalate. **No §8.3.1 refusal ever escalates** — retrying a
+private-address rejection through a browser is the bypass the control exists to
+prevent — and neither does `too_large`, `mime_not_allowed`, or a PDF extraction
+failure.
+
+**Thin content.** A body under 400 characters is treated as a probable soft
+block and escalated. If no tier does better, the longest body is still stored:
+a genuinely short page must not be dropped. Such a capture is reported as
+`thin`, alongside `truncated`, in the command's output.
+
+**Redirects on tiers 2 and 3.** Both follow redirects internally, so per-hop
+validation is not achievable there. The entry URL is validated before any tier,
+and the final URL is validated before anything is recorded. This is a documented
+weakening of the per-hop guarantee, confined to the fallback tiers.
+
+`--parallel N` (default 6) fetches N URLs at a time; writes stay ordered and
+single-threaded so source ids remain deterministic. SEC hosts are limited to 2
+concurrent requests. `--retry-failed` re-attempts URLs previously recorded as
+`null`, which is how a corpus harvested before the ladder existed is recovered.
 
 ### **8.4** **`validate`**
 
@@ -1668,6 +1707,21 @@ Only the main thread mutates shared state.
 | `transcript` | transcript source; `on_earnings`                             |
 | `wikipedia`  | Wikipedia source; 90d                                        |
 | `news`       | Yahoo news source; 5d                                        |
+| `ownership`  | `structured/ownership_openbb.json` — institutional holders, insider trades, short interest, via OpenBB out of process; 7d |
+
+`ownership` is the one kind whose provider is not a dependency of this project.
+OpenBB normalizes ~50 upstreams behind one schema, which is what makes FINRA
+short interest and FMP Form 4 data arrive comparably shaped, but it is 51
+packages — so the fetcher shells out to an interpreter named by `OPENBB_PYTHON`
+and reads JSON back. No interpreter means a warning and no artifact; the kind is
+context, not §11.1 minimum-viable input. Provider keys travel in the subprocess
+environment, never in argv.
+
+Partial results are kept deliberately. OpenBB's own providers fail
+individually — `major_holders` currently raises on its own data model — so a
+dataset that failed is recorded inside the artifact under `unavailable`, which
+is what lets a later reader distinguish "no insider selling" from "the insider
+feed was down that day".
 
 ### **Fetcher contract**
 
@@ -1751,7 +1805,8 @@ The same rule applies to FRED.
 
 ### **11.2 Prefetch web research**
 
-Prefetch launches the harness-provided `deep-research` Workflow for seven topics:
+Prefetch dispatches **seven `sra-researcher` subagents, one per topic, in a
+single message**:
 
 ```text
 news
@@ -1766,31 +1821,32 @@ thesis
 Prompt files:
 
 ```text
-prompts/prefetch_research/<topic>.md
+prompts/prefetch_research/_shared.md     the budget and the citation contract
+prompts/prefetch_research/<topic>.md     the topic's seed queries
 ```
 
-Invocation:
-
-```javascript
-Workflow({
-  name: "deep-research",
-  args: <topic prompt + ticker context>
-})
-```
-
-Fallback:
-
-```text
-one sra-researcher subagent per topic
-```
-
-Results are written to:
+Each agent reads both, and writes its own answer to:
 
 ```text
 derived/answers/<date>_prefetch_<topic>.md
 ```
 
-with `cited_urls`.
+with `cited_urls`. The orchestrator writes no answer files — relaying seven
+research bodies through its context was itself a material cost.
+
+**Budget.** `_shared.md` binds every topic to at most **14 searches** and
+**8–12 page reads**, a **1,200-word** body, and one rule that matters more than
+the other two: figures come from `structured/` and the filings in `sources/`,
+which are already gathered deterministically, and **must not be re-verified
+against the web**. Effort is `medium`, from `sra-researcher`'s frontmatter — the
+Agent tool takes no effort parameter, so that is the only dial.
+
+**The harness `deep-research` Workflow is retired.** It was harness-owned, so no
+budget, model or effort could be imposed on it, and the measured TOST cold build
+put the consequence beyond argument: seven topics became **728 subagents,
+20.65M input tokens and 34 minutes — 93% of the whole run** — to yield 202 URLs.
+Since the answer prose is discarded and only `cited_urls` survive, that was
+~100k tokens per durable URL. Do not reintroduce it.
 
 The driver then runs:
 
@@ -1798,9 +1854,11 @@ The driver then runs:
 sra.py fetch-urls
 ```
 
+which escalates each URL through the §8.3.2 failover ladder.
+
 The research answer itself is never evidence.
 
-Perplexity remains an optional supplement.
+Perplexity remains an optional supplement (`--kinds perplexity`).
 
 ------
 
@@ -3487,6 +3545,7 @@ ticker_dir(data_root, ticker) = data_root / ticker.upper()
 | ---------------------- | ------------------------------------------------------------ |
 | `charts T [--verdict]` | render chart candidates                                      |
 | `assemble T`           | deterministic concatenation, citation processing, and rendering |
+| `lint-render T [--run R]` | check the rendered HTML and PDF for template leakage (§22.4) |
 | `run-log T [--run R]`  | assemble the run's audit log from its per-agent task logs    |
 | `snapshot T`           | create immutable report-run snapshot                         |
 
@@ -3891,7 +3950,7 @@ prompts/
 | --------------- | ------------------------------------ | ------------------------------------------------------------ |
 | `sra-build`     | `/sra-build TICKER [--length …]`     | cold-build orchestrator                                      |
 | `sra-update`    | `/sra-update TICKER ["instruction" ...]` | incremental orchestrator                                     |
-| `sra-prefetch`  | `/sra-prefetch TICKER [...]`         | deterministic gather + deep research + harvest               |
+| `sra-prefetch`  | `/sra-prefetch TICKER [...]`         | deterministic gather + seven budgeted topics + harvest       |
 | `sra-peers`     | `/sra-peers TICKER [--peers ...]`    | candidate gather + one ranking agent + deterministic selection |
 | `sra-research`  | `/sra-research TICKER <section\|entity> [--rounds N]` | question-driven research loop (§14)              |
 | `sra-write`     | `/sra-write TICKER <section>`        | incremental section writer                                   |
@@ -3926,6 +3985,55 @@ Mitigations:
 This is mitigation, not containment.
 
 If the harness later permits MCP access with a restricted allowlist, remove Bash from the researcher.
+
+### **21.1 Model and effort policy**
+
+Every agent in the graph is priced by two dials, and until this section existed neither was set anywhere: every agent inherited the session's model and effort, which for Claude Code means `xhigh` on whatever model the user picked.
+
+The two dials are not interchangeable:
+
+- **Effort** buys reasoning depth, and lowering it also shortens tool loops — fewer, more-consolidated calls. For a retrieval agent whose cost is accumulated context replayed across turns, that compounds: it cuts input tokens faster than it cuts turns.
+- **Model** buys capability, and swapping it down is the blunter instrument. It is warranted only where a stage executes a decision another stage already made.
+
+Prefer effort. Reach for a cheaper model only when the stage's input already contains the answer.
+
+**Where each dial can be set.** This is a harness constraint, not a choice:
+
+| Dispatch path | `model` | `effort` |
+| --- | --- | --- |
+| Agent tool (skills) | per call | **agent frontmatter only** |
+| Workflow `agent()` | per call | per call |
+
+Because the Agent tool exposes no per-call effort, one agent type serving several roles lands them all on one number. `sra-writer` is that case: its frontmatter carries the floor its most demanding skill-dispatched role needs, and the workflows — which *can* set effort per call — override it per stage.
+
+**The policy.** Every stage names its level explicitly, so that changing the session default never silently re-prices a phase.
+
+| Stage | Agents | Model | Effort | Why |
+| --- | --- | --- | --- | --- |
+| prefetch topics | 7 | inherit | `medium` | budgeted web sweep; its durable output is URLs. `medium` used to be aspirational here — the harness Workflow took no effort parameter — and is now real, from `sra-researcher`'s frontmatter |
+| answerers | ~23 | inherit | `medium` | retrieve and report; long tool loop, shallow judgment |
+| synthesizers | ~15 | inherit | `high` | decides which claims survive and what bronze id each terminates in |
+| peer rater | 1 | inherit | `medium` | bounded table, written rubric |
+| judgment lint | 1 | inherit | `high` | does this source actually support this claim (§22.1) |
+| section write | 7 | inherit | `high` | the product |
+| section critic | 7 | inherit | `high` | resolves every citation; the reason the wave costs three agents |
+| section rewrite | 7 | inherit | `medium` | applies a worklist that names what to fix |
+| cross-section | 1 | inherit | `medium` | recall over a bounded set of numbers |
+| conclusion | 1 | inherit | `high` | the verdict |
+| whole-report critique | 1 | inherit | `high` | the worklist polish executes |
+| polish | 1 | inherit | `medium` | executes two worklists; the sweep is the judgment part |
+| evaluate | 1 | inherit | `medium` | scores against a written rubric |
+| chart selection | 1 | inherit | `high` | salience against the report's argument |
+| clarity critique | 1 | inherit | `high` | the only first-reader pass over the assembled document |
+| clarity fix | 1 | **`sonnet`** | — | the worklist already contains the replacement prose |
+
+`inherit` means the session's model, so a run stays on one model family unless the user changes it.
+
+**Two stages are deliberately not cheapened.**
+
+`evaluate` produces no reader-facing output, which makes it the obvious downgrade — and it is exactly wrong. §23.3's quality gate is an evaluator score against a fixed baseline, so the evaluator is the measuring stick. Changing its model moves the scale and makes scores incomparable across runs; you would lose the gate, not the grade.
+
+`section rewrite` and `polish` both execute worklists, which is the shape that justifies `sonnet` for the clarity fix — but both are still authoring prose that ships, against `STYLE.md`. Only the clarity fix receives its replacement text already written.
 
 ------
 
@@ -3986,6 +4094,28 @@ The specification does not claim otherwise.
 - immutable sources cannot be overwritten.
 - model evidence cannot be placed in bronze directories.
 - leaked keys cause validation failure.
+
+### **22.4 Rendered-deliverable lint**
+
+Every gate up to this point reads the report as source: hard checks over drafts, `validate` over citations, the polish chain over markdown. None of them looks at what the reader receives, and that gap has one recurring failure mode — the template machinery emitting itself into the document.
+
+The instance that motivated the gate: `templates/report.css` is an HTML fragment spliced into pandoc's `<head>`, and a block of rules was appended below its closing tag. Both consequences were silent. The rules never applied, so citation-anchor styling shipped dead for three runs. And the CSS text — comments included — became character data in the head, which HTML5 error recovery relocates into the body, so it printed above the masthead in the HTML and the PDF. Neither pandoc nor weasyprint had cause to complain: each was handed well-formed input.
+
+`lib/render/lint_render.py` reads both deliverables back off disk and reports anything that is machinery rather than content:
+
+- CSS reaching the reader — comments, at-rules, custom properties, declaration blocks — detected in text that is **not** inside a `style` or `script` element,
+- unbalanced `style` tags, reported before the symptoms because it names the cause,
+- unrendered Jinja (`{{ … }}`, `{% … %}`) and literal HTML comments.
+
+Both files are checked **independently**. A clean HTML does not imply a clean PDF: the PDF applies print-only rules the HTML view never exercises, and a hand-repaired HTML leaves the PDF beside it untouched — a shipped run had exactly that pairing.
+
+Run by `assemble` over what it just wrote, and standalone as `lint-render` for the two cases assemble cannot reach: a snapshotted run, which is immutable and must never be re-assembled to be re-checked, and a deliverable edited after the fact.
+
+A finding is **exit 1**, like every other contract failure — not a §22.3 degradation. A missing deliverable or a missing `pdftotext` **is** a §22.3 degradation and is reported as a skip, so a machine without poppler does not fail a build over a missing system tool.
+
+This is deliberately not an HTML validator. Pandoc's output is well-formed by construction, and a validator would bury a real finding in advisory noise.
+
+The lint is mechanical, so §22.1's limit on model judgment applies here too: what a regex cannot see — a table split from its heading, a blank exhibit, numbers overflowing a column — is the visual pass in `/sra-assemble`, which reads rendered pages as images and samples rather than sweeps.
 
 ------
 
@@ -4178,9 +4308,14 @@ check_budgets(
 
 The 6M ceiling is the failure threshold, not the goal. The expected 74-agent graph lands near 5M at ~60–80k input per agent, so the ≤3M target requires structural reduction rather than a lower ceiling. The levers, largest first:
 
+- **effort tiering (§21.1)**, which is the only lever that costs no coverage: it removes reasoning depth from stages that were not using it rather than removing stages. Applied first, because every lever below drops work the report would otherwise have,
 - research rounds 3 → 2, removing ~7 answerers and ~3 synthesizers,
 - write-wave depth: 7 × (write, critic, rewrite) is the single largest block, and `single_section_critic` (§15.1) already models the cheaper shape,
 - fewer, larger answer batches per round, since every batch pays the ~50k context floor of §1.1.
+
+The measured PANW cold build (58 agents, 8.06M input + 0.80M output) exceeded the 6M ceiling before any of these were applied, with the write wave at 32% of input tokens and the answerers at 26%. Those two phases are where §21.1 concentrates its cuts.
+
+The later TOST cold build was worse by a different mechanism, and the correction is §11.2's. Its prefetch phase alone ran **728 subagents and 20.65M input tokens in 34 minutes — 93% of a 22.15M-token run** — because the seven topics went to the harness `deep-research` Workflow, which accepts no budget. Retiring it in favour of seven budgeted `sra-researcher` agents is expected to return prefetch to roughly 7 agents and under 2M tokens. The lesson generalizes: an unbudgeted delegation dominates every budgeted one, so a stage with no ceiling is the first thing to look at when a build overruns — not the stage with the largest share of a well-behaved run.
 
 Incremental:
 

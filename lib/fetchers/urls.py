@@ -34,6 +34,26 @@ one to the socket. Closing that would mean pinning the resolved IP into a custom
 transport and carrying the Host header by hand, which the spec does not ask for;
 the window is narrow and the attacker must already control the nameserver for a
 host the model was induced to cite.
+
+Second residual risk, from the failover ladder (`fetch_batch`), and named here
+because an undocumented weakening of a stated control is worse than the
+weakening itself: tiers 2 and 3 follow redirects INTERNALLY. A browser and a
+proxy both chase `Location` themselves, and neither can be made to hand each hop
+back for approval the way tier 1's manual loop does. So for those tiers the
+per-hop guarantee above does NOT hold. What holds instead:
+
+- the entry URL is validated before any tier is attempted, and
+- the FINAL url — the one that would be recorded, slugged into an id, and cited
+  — is validated again on the way out (`_from_html`).
+
+An intermediate hop through a private address is therefore possible on tiers 2
+and 3 where it is not on tier 1. The exposure is a blind request: the browser
+runs in its own process with no repo credentials, the response is discarded
+unless the final address is public, and tier 3 does not even originate on this
+host — Bright Data dials from its own network, which makes it the tier LEAST
+able to reach anything of ours. Escalation is also refused outright for every
+§8.3.1 reason code (see `ESCALATABLE_REASONS`), so a URL rejected for pointing
+at a private address is never retried on a heavier tier.
 """
 from __future__ import annotations
 
@@ -43,6 +63,8 @@ import os
 import re
 import socket
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -81,12 +103,31 @@ def request_headers() -> dict[str, str]:
         "Accept": "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     }
-MAX_MARKDOWN_CHARS = 200_000
+# A 10-K's inline-XBRL text runs well past the old 200_000 cap, and the cut
+# landed mid-MD&A: the TOST run stored six SEC filings that stop before Item 7A
+# and the notes, which are precisely the parts a research question reaches a
+# filing for. Seven of 122 harvested pages hit the cap. `MAX_BYTES` (5MB) already
+# bounds what we will download, so this only bounds what we keep of it; 1.5M
+# characters holds a full 10-K with room to spare and still refuses a runaway.
+MAX_MARKDOWN_CHARS = 1_500_000
+
+# Below this, a body is treated as evidence of a soft block rather than as a
+# short page — see `_package`. 400 is the threshold `~/projects/newsagent` uses
+# for the same purpose against the same class of publisher.
+MIN_MARKDOWN_CHARS = 400
+
 WEB_PAGE_POLICY_DAYS = 30
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
+# `application/json` is here because SEC's own data endpoints (data.sec.gov's
+# companyconcept/companyfacts) serve it, and a researcher citing one had the
+# fetch refused as `mime_not_allowed` — the TOST harvest lost three that way.
+# JSON is stored verbatim through the `text/plain` path: it is prose enough to
+# grep and quote, and reformatting it would make the stored bytes disagree with
+# the endpoint they claim to be.
 MIME_ALLOWLIST = frozenset({
-    "text/html", "text/plain", "application/pdf", "application/xhtml+xml"})
+    "text/html", "text/plain", "application/pdf", "application/xhtml+xml",
+    "application/json"})
 
 # Cloud instance-metadata endpoints, checked by literal address so the rejection
 # names what it is. 169.254.169.254 (AWS/GCP/Azure/OpenStack) is inside
@@ -386,6 +427,7 @@ def fetch_url_to_markdown(
     *,
     client=None,
     resolver: Resolver = socket.getaddrinfo,
+    min_chars: int = 0,
 ) -> tuple[bool, dict | None, str | None]:
     """Fetch `url` and return `(success, data, error)` (§8.3, §8.3.1).
 
@@ -455,16 +497,7 @@ def fetch_url_to_markdown(
             except FetchRejected as exc:
                 return False, None, str(exc)
 
-            truncated = len(markdown) > MAX_MARKDOWN_CHARS
-            if truncated:
-                markdown = markdown[:MAX_MARKDOWN_CHARS]
-            return True, {
-                "markdown": markdown,
-                "final_url": final_url,
-                "content_type": mime,
-                "truncated": truncated,
-                "title": title,
-            }, None
+            return _package(markdown, final_url, mime, title, min_chars)
 
         return False, None, (
             f"too_many_redirects: {url} exceeded {MAX_REDIRECTS} redirects")
@@ -478,9 +511,372 @@ def _to_markdown(payload: bytes, mime: str, response) -> tuple[str, str | None]:
     if mime == "application/pdf":
         return pdf_to_text(payload), None
     text = _decode(payload, response)
-    if mime == "text/plain":
+    if mime in ("text/plain", "application/json"):
         return text.strip(), None
     return html_to_markdown(text)
+
+
+def _package(markdown: str, final_url: str, mime: str, title: str | None,
+             min_chars: int = 0) -> tuple[bool, dict | None, str | None]:
+    """Wrap one tier's extracted text as a result, applying the thin test.
+
+    Every tier funnels through here, so "how long is too short" is decided once
+    and identically for httpx, the browser and Bright Data.
+
+    A body under `min_chars` comes back as `(False, data, "thin_content: ...")`
+    — false, but WITH its data. That shape is deliberate: `fetch_batch` reads it
+    as "try the next tier", and if no tier does better it accepts the longest
+    thin body rather than dropping the URL. A genuinely short page is not a
+    failure; a 404-shaped shell served with HTTP 200 is, and nothing at this
+    level can tell them apart, so the judgement belongs to the ladder that can
+    act on it.
+
+    `min_chars` therefore defaults to 0 — OFF. A bare `fetch_url_to_markdown`
+    keeps the §8.3 contract it has always had, where any 200 with an allowlisted
+    body is a success; only the ladder opts in. Making the rule unconditional
+    would turn every genuinely short page into a hard failure for callers with
+    no second tier to fall back on.
+
+    The TOST harvest stored two bodies at ZERO characters — one of them Toast's
+    own Q2 2026 results release — as ordinary successes, and no reader
+    downstream had any way to notice.
+
+    A body that reads as a block page is refused the same way, whatever its
+    length: `looks_like_block_page` catches the verbose ones that sail past
+    `min_chars`.
+    """
+    truncated = len(markdown) > MAX_MARKDOWN_CHARS
+    if truncated:
+        markdown = markdown[:MAX_MARKDOWN_CHARS]
+    data = {
+        "markdown": markdown,
+        "final_url": final_url,
+        "content_type": mime,
+        "truncated": truncated,
+        "title": title,
+    }
+    if min_chars and looks_like_block_page(title, markdown):
+        return False, data, (
+            f"blocked_page: {final_url} returned "
+            f"{(title or markdown[:60]).strip()!r}")
+    if len(markdown) < min_chars:
+        return False, data, (
+            f"thin_content: {final_url} yielded {len(markdown)} chars of text")
+    return True, data, None
+
+
+# Titles that mean "this is not the document, it is the wall in front of it".
+# Every one of these was observed standing in for real evidence in the TOST
+# harvest — fintel served a 9,301-character "enhanced security screening" page
+# and tipranks an 8,628-character 404, both of which clear any length threshold
+# and would have been stored, cited, and quoted as fact.
+_BLOCK_TITLE_MARKERS = (
+    "access denied", "access to this page has been denied",
+    "page not found", "404 - page not found", "error 404",
+    "just a moment", "are you a robot", "attention required",
+    "security screening", "enhanced security", "captcha",
+    "authentication failed", "please enable javascript", "request blocked",
+    "forbidden", "too many requests", "rate limit",
+)
+
+# Matched against the whole body only when it is short enough that the phrase
+# IS the page. A long article may legitimately quote "access denied".
+_BLOCK_BODY_SCAN_CHARS = 300
+
+
+def looks_like_block_page(title: str | None, markdown: str) -> bool:
+    """Is this an interstitial — a bot wall, a 404, a login gate — not a document?
+
+    A length test alone cannot answer this: the block pages that actually cost
+    the TOST run evidence were VERBOSE, carrying a publisher's full navigation
+    chrome around a one-line refusal. Nor can length be dropped in favour of
+    this, since the shortest walls carry no marker at all ("Powered and
+    protected by Privacy", 33 characters). The two rules catch different halves.
+
+    Deliberately conservative — it only refuses a page, and a false positive
+    costs one citable source, so the markers are phrases that a real financial
+    article would not carry in its TITLE.
+    """
+    haystack = (title or "").strip().lower()
+    if any(marker in haystack for marker in _BLOCK_TITLE_MARKERS):
+        return True
+    if len(markdown) <= _BLOCK_BODY_SCAN_CHARS:
+        body = markdown.strip().lower()
+        return any(marker in body for marker in _BLOCK_TITLE_MARKERS)
+    return False
+
+
+# --- the failover ladder ---------------------------------------------------
+#
+# One httpx GET loses about a third of what a research phase cites, and almost
+# none of that loss is a dead link. The TOST prefetch harvest recorded 76
+# failures out of 202 URLs; the failing hosts were investing.com,
+# businesswire.com, seekingalpha.com, paymentsdive.com and their neighbours,
+# every one of which answers a bare HTTP client with 403 and a real browser with
+# the article. A URL that fails here is not merely missing: `harvest_answer`
+# writes it into the map as `null`, and §8.3 makes a `null` mean "this claim
+# cannot be cited", so the synthesizer downstream must drop whatever rested on
+# it. Losing a third of the evidence is therefore a research-quality problem,
+# not a plumbing inconvenience.
+#
+# So: three tiers, cheapest first, and escalation only for failures a different
+# transport could plausibly fix.
+
+# Reasons worth retrying with a heavier tier. An allowlist rather than a
+# denylist, so an unfamiliar reason code stays put instead of quietly earning a
+# browser launch. `http_*` statuses are matched separately.
+ESCALATABLE_REASONS = frozenset({
+    "transport_error",          # connection reset / read timeout — often a block
+    "too_many_redirects",       # a consent-wall bounce a browser walks through
+    "redirect_without_location",
+    "thin_content",             # HTTP 200 with an empty shell: the classic soft block
+    "blocked_page",             # a bot wall / 404 / login gate served as HTTP 200
+    # A heavier tier failing on its OWN terms — not installed, browser would not
+    # launch, navigation died, the proxy returned a bad job. These say nothing
+    # about the URL, only about that tier, so the next tier still deserves a go.
+    # Omitting them is what made an unconfigured tier 2 swallow every URL before
+    # tier 3 was ever consulted.
+    "playwright_unavailable", "playwright_error", "playwright_timeout",
+    "brightdata_unavailable", "brightdata_error", "brightdata_status",
+    "brightdata_empty",
+    "tier_error",
+})
+
+# Reasons that must NEVER escalate, and why, because getting this wrong is how a
+# security control becomes decorative:
+#   - every §8.3.1 refusal (scheme, private/loopback/metadata address, DNS): the
+#     whole point of the control is that we do not dial these, and "try again
+#     through a browser" is precisely the bypass it exists to stop;
+#   - `too_large`: the body was refused on size, and no tier changes that;
+#   - `mime_not_allowed`: a browser renders ANY content type into HTML, so
+#     escalating would store a viewer shell as if it were the document;
+#   - the `pdf_*` reasons: same, but worse — Firefox's PDF viewer chrome is not
+#     the PDF's text.
+
+MAX_TIER_ERROR_CHARS = 400
+
+# What the driver uses. Modest on purpose: the ladder makes a slow URL slower
+# (three transports instead of one), so the win is in overlapping them, not in
+# hammering a publisher from twenty sockets at once.
+DEFAULT_HARVEST_PARALLEL = 6
+
+# EDGAR's fair-access policy caps automated traffic, and the whole-corpus harvest
+# now runs concurrently, so SEC hosts get their own narrow lane. Everything else
+# is bounded only by the pool.
+PER_HOST_CONCURRENCY = {"sec.gov": 2}
+
+
+def _reason_of(error: str) -> str:
+    """The machine-readable code a tier error leads with."""
+    return error.split(":", 1)[0].strip()
+
+
+def is_escalatable(error: str | None) -> bool:
+    """Should a URL that failed with `error` be retried on a heavier tier?"""
+    if not error:
+        return False
+    reason = _reason_of(error)
+    if reason in ESCALATABLE_REASONS:
+        return True
+    # `http_403`, `http_429`, `http_503`, ... — a status a different client or a
+    # different egress may simply not receive. 404 is included deliberately:
+    # publishers serve 404 to clients they dislike as readily as 403.
+    return reason.startswith("http_")
+
+
+def _host_semaphores(urls: list[str]) -> dict[str, threading.Semaphore]:
+    """One semaphore per rate-limited host present in `urls`."""
+    out: dict[str, threading.Semaphore] = {}
+    for suffix, limit in PER_HOST_CONCURRENCY.items():
+        if any(_matches_host(u, suffix) for u in urls):
+            out[suffix] = threading.Semaphore(limit)
+    return out
+
+
+def _matches_host(url: str, suffix: str) -> bool:
+    """Is `url`'s host `suffix` or a subdomain of it?"""
+    host = (urlsplit(url).hostname or "").lower()
+    return host == suffix or host.endswith(f".{suffix}")
+
+
+def canonical_url(html: str, fallback: str) -> str:
+    """The document's same-site `<link rel="canonical">`, else `fallback`.
+
+    Bright Data's Web Unlocker does not report where redirects landed — it
+    echoes the URL we asked for — so for tier 3 this is the only way to learn a
+    page's real address.
+
+    A canonical pointing at a DIFFERENT registrable host is ignored. A hostile
+    or merely careless publisher would otherwise get to choose the `url` we
+    record and the id we slug from it, which is how one document ends up filed
+    under another document's name.
+    """
+    try:
+        from lxml import html as lxml_html
+        root = lxml_html.fromstring(_XML_DECLARATION_RE.sub("", html, count=1))
+    except Exception:  # noqa: BLE001 — unparseable HTML just has no canonical
+        return fallback
+
+    for node in root.iter("link"):
+        rel = (node.get("rel") or "").strip().lower()
+        href = (node.get("href") or "").strip()
+        if rel != "canonical" or not href:
+            continue
+        candidate = urljoin(fallback, href)
+        if site_name(candidate) == site_name(fallback):
+            return candidate
+    return fallback
+
+
+def _from_html(url: str, html: str, final_url: str
+               ) -> tuple[bool, dict | None, str | None]:
+    """Turn a tier-2/tier-3 HTML payload into a result.
+
+    Extraction goes through the same `html_to_markdown` tier 1 uses, so the
+    three tiers cannot disagree about what a page says.
+
+    `final_url` is re-validated here because tiers 2 and 3 follow redirects
+    internally: neither can be made to re-check each hop the way tier 1's manual
+    redirect loop does, so the address we would RECORD is checked instead. See
+    the module docstring's residual-risk note.
+    """
+    try:
+        check_url_allowed(final_url)
+    except FetchRejected as exc:
+        return False, None, f"redirect_to_{exc.reason}: {exc.message}"
+
+    markdown, title = html_to_markdown(html)
+    return _package(markdown, final_url, "text/html", title, MIN_MARKDOWN_CHARS)
+
+
+def _browser_tier(urls: list[str]) -> dict[str, tuple[bool, dict | None, str | None]]:
+    """Tier 2: headless Firefox, as a batch sharing one browser."""
+    from lib.fetchers import browser_fetch
+
+    out: dict[str, tuple[bool, dict | None, str | None]] = {}
+    for url, (ok, data, err) in browser_fetch.fetch_html_batch(urls).items():
+        out[url] = (_from_html(url, data["html"], data["final_url"])
+                    if ok and data else (False, None, err))
+    return out
+
+
+def _brightdata_tier(urls: list[str]) -> dict[str, tuple[bool, dict | None, str | None]]:
+    """Tier 3: Bright Data Web Unlocker, with the canonical-URL recovery."""
+    from lib.fetchers import brightdata_fetch
+
+    out: dict[str, tuple[bool, dict | None, str | None]] = {}
+    for url, (ok, data, err) in brightdata_fetch.fetch_html_batch(urls).items():
+        if not ok or not data:
+            out[url] = (False, None, err)
+            continue
+        html = data["html"]
+        out[url] = _from_html(url, html, canonical_url(html, data["final_url"]))
+    return out
+
+
+TierOne = Callable[..., tuple[bool, dict | None, str | None]]
+TierBatch = Callable[[list[str]], dict[str, tuple[bool, dict | None, str | None]]]
+
+
+def _run_tier_one(urls: list[str], fetch: TierOne, parallel: int
+                  ) -> dict[str, tuple[bool, dict | None, str | None]]:
+    """Every URL through tier 1, `parallel` at a time.
+
+    `min_chars` is passed as a keyword so the thin-content rule applies to the
+    REAL tier 1 without being imposed on an injected stand-in, which may
+    legitimately serve short fixtures.
+
+    `parallel == 1` runs a plain in-order loop rather than a one-worker pool, so
+    the default path keeps the exact call ORDER the sequential implementation
+    had. Several tests assert on that order, and more importantly a deterministic
+    default is what makes a failed harvest reproducible.
+    """
+    if parallel <= 1:
+        return {url: fetch(url, min_chars=MIN_MARKDOWN_CHARS) for url in urls}
+
+    semaphores = _host_semaphores(urls)
+
+    def _one(url: str) -> tuple[bool, dict | None, str | None]:
+        held = [s for suffix, s in semaphores.items() if _matches_host(url, suffix)]
+        for sem in held:
+            sem.acquire()
+        try:
+            return fetch(url, min_chars=MIN_MARKDOWN_CHARS)
+        finally:
+            for sem in held:
+                sem.release()
+
+    with ThreadPoolExecutor(max_workers=parallel) as pool:
+        return dict(zip(urls, pool.map(_one, urls)))
+
+
+def fetch_batch(
+    urls: list[str],
+    *,
+    tier1: TierOne | None = None,
+    tier2: TierBatch | None = None,
+    tier3: TierBatch | None = None,
+    parallel: int = 1,
+) -> dict[str, tuple[bool, dict | None, str | None]]:
+    """Fetch `urls` through the failover ladder; one result per input URL.
+
+    Phase-batched rather than a per-URL ladder, and that is the load-bearing
+    choice: a browser launch costs seconds and hundreds of megabytes, so
+    escalating one URL at a time from inside a thread pool would mean one
+    Firefox per worker. Instead everything tier 1 lost is handed to tier 2 at
+    once, and everything tier 2 lost to tier 3.
+
+    A thin or blocked body is never stored. The original design here accepted
+    the longest thin body as a last resort, on the theory that a genuinely short
+    page should not be dropped for resembling a soft block. Replaying TOST's 63
+    failed URLs through the ladder refuted that: of the bodies that stayed thin
+    at every tier, ALL were bot walls, 404s or auth failures — "Powered and
+    protected by Privacy", "Access to this page has been denied",
+    "Authentication failed" — and not one was a real short article. Storing them
+    would put a publisher's refusal into bronze under a plausible id, where a
+    writer can cite it as evidence about the company.
+
+    A `null` says the claim is not citable, which is exactly true. So the last
+    resort is failure, and the merged per-tier reasons say what was tried.
+
+    Every tier is injectable, which is what lets the whole ladder be tested
+    without a network, a browser or a provider account.
+    """
+    urls = list(dict.fromkeys(urls))
+    if not urls:
+        return {}
+
+    tier1 = tier1 or fetch_url_to_markdown
+    tier2 = _browser_tier if tier2 is None else tier2
+    tier3 = _brightdata_tier if tier3 is None else tier3
+
+    results: dict[str, tuple[bool, dict | None, str | None]] = {}
+    errors: dict[str, list[str]] = {url: [] for url in urls}
+    pending = urls
+
+    for stage in (lambda batch: _run_tier_one(batch, tier1, parallel), tier2, tier3):
+        if not pending:
+            break
+        staged = stage(list(pending))
+        still_pending: list[str] = []
+        for url in pending:
+            ok, data, err = staged.get(
+                url, (False, None, "tier_error: no result returned"))
+            if ok and data is not None:
+                results[url] = (True, data, None)
+                continue
+            if err:
+                errors[url].append(err)
+            if is_escalatable(err):
+                still_pending.append(url)
+        pending = still_pending
+
+    for url in urls:
+        if url in results:
+            continue
+        joined = " | ".join(errors[url]) or "fetch failed"
+        results[url] = (False, None, joined[:MAX_TIER_ERROR_CHARS])
+    return results
 
 
 # --- harvest (§8.3) --------------------------------------------------------
@@ -634,6 +1030,9 @@ def harvest_answer(
     max_n: int | None = None,
     *,
     fetcher: Callable[..., tuple[bool, dict | None, str | None]] | None = None,
+    tier2: TierBatch | None = None,
+    tier3: TierBatch | None = None,
+    parallel: int = 1,
     now: datetime | None = None,
 ) -> dict:
     """Harvest one document's `cited_urls` into bronze (§8.3).
@@ -663,7 +1062,18 @@ def harvest_answer(
     (§8.3: a failed target fetch is a warning). Raises only if `answer_path`
     itself cannot be read — the one condition §8.3 makes fatal.
 
-    Returns `{"fetched": [url], "skipped": [url], "errors": {url: reason}}`.
+    `fetcher` is tier 1 of the ladder; `tier2`/`tier3` are the heavier tiers and
+    default to the real browser and proxy. All three are injectable so the whole
+    harvest is testable without a network.
+
+    `parallel` defaults to 1, which runs tier 1 as a plain in-order loop. The
+    driver raises it; the library keeps the deterministic default it has always
+    had, so a harvest can be reproduced exactly when something goes wrong.
+
+    Returns
+    `{"fetched": [url], "skipped": [url], "errors": {url: reason},
+      "truncated": [url]}`, where `truncated` lists pages stored but cut at
+    `MAX_MARKDOWN_CHARS`.
     """
     fetch = fetcher or fetch_url_to_markdown
     now = now or datetime.now(timezone.utc)
@@ -672,9 +1082,17 @@ def harvest_answer(
     ticker, artifact_id = meta.ticker, meta.id
 
     mapping = read_url_map(ticker_dir, artifact_id)
-    result: dict = {"fetched": [], "skipped": [], "errors": {}}
-    fetched = 0
+    # `truncated` is reported, not merely recorded on the source: a partial
+    # capture that nothing surfaces is worse than a failed one, because it is
+    # cited with full confidence. Six of TOST's SEC filings stopped mid-MD&A and
+    # no output said so.
+    result: dict = {"fetched": [], "skipped": [], "errors": {}, "truncated": []}
 
+    # Phase 1 — decide, without touching the network. Every skip/reuse case is
+    # settled here, and `prior` is resolved for the rest, so the fetch phase has
+    # no filesystem questions left to ask. Safe to do up front because nothing
+    # is WRITTEN until phase 3, so no lookup can be invalidated by our own work.
+    plan: list[tuple[str, SourceMeta | None]] = []
     seen: set[str] = set()
     for url in meta.cited_urls:
         if url in seen:
@@ -692,11 +1110,22 @@ def harvest_answer(
             result["skipped"].append(url)
             continue
 
-        if max_n is not None and fetched >= max_n:
+        if max_n is not None and len(plan) >= max_n:
             break  # leave the rest unharvested for a later run
 
-        fetched += 1
-        ok, data, err = fetch(url)
+        plan.append((url, prior))
+
+    # Phase 2 — fetch, through the failover ladder, `parallel` at a time.
+    fetched_results = fetch_batch(
+        [url for url, _prior in plan],
+        tier1=fetch, tier2=tier2, tier3=tier3, parallel=parallel)
+
+    # Phase 3 — write, strictly in the original URL order and on ONE thread.
+    # `make_source_id` derives uniqueness by scanning `sources/`, so concurrent
+    # writers would race on its `_<n>` suffix and make ids depend on timing.
+    for url, prior in plan:
+        ok, data, err = fetched_results.get(
+            url, (False, None, "fetch failed"))
         if not ok or data is None:
             mapping[url] = None
             result["errors"][url] = err or "fetch failed"
@@ -711,18 +1140,27 @@ def harvest_answer(
             result["errors"][url] = f"write failed: {type(exc).__name__}: {exc}"
             continue
         result["fetched"].append(url)
+        if data.get("truncated"):
+            result["truncated"].append(url)
 
     _write_url_map(ticker_dir, artifact_id, mapping)
     return result
 
 
-def harvest_targets(ticker_dir: Path) -> list[Path]:
+def harvest_targets(ticker_dir: Path, *, retry_failed: bool = False) -> list[Path]:
     """Every document with UNHARVESTED `cited_urls` (§8.3's no-`--from` case).
 
     "Unharvested" means a cited URL that is not yet a KEY in the document's map
     — so a URL whose fetch failed (`null`) is not retried on every bulk run,
     which would mean hammering a dead link forever. Naming the document with
     `--from` re-attempts those, since that is an explicit request.
+
+    `retry_failed` widens the sweep to documents whose only outstanding URLs are
+    those `null`s. The default rule assumes a `null` means the link is dead, and
+    for a single-tier fetcher that was near enough; with the failover ladder in
+    place most historical `null`s are OUR failure — a 403 to httpx that a
+    browser walks straight through — so a corpus harvested before the ladder
+    existed can be recovered without hand-writing a `--from` per answer.
 
     Both researcher answers and aggregator sources are scanned: §5's `cited_urls`
     exists on a news roundup for exactly this reason.
@@ -742,5 +1180,8 @@ def harvest_targets(ticker_dir: Path) -> list[Path]:
             continue
         mapping = read_url_map(ticker_dir, meta.id)
         if any(url not in mapping for url in meta.cited_urls):
+            targets.append(path)
+        elif retry_failed and any(mapping.get(url) is None
+                                  for url in meta.cited_urls):
             targets.append(path)
     return targets

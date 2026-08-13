@@ -191,32 +191,86 @@ const EVALUATION_SCHEMA = {
   additionalProperties: true,
 }
 
+// Effort per stage (spec §21.1). Every stage is the same `sra-writer`, so the
+// agent definition cannot tell them apart — but `agent()` takes `opts.effort`,
+// and these override the definition's `high` floor. Naming a level on every
+// stage means changing the session default never silently re-prices the chain.
+//
+// This chain is five SEQUENTIAL agents, so unlike the write wave its cost is
+// paid in wall clock as much as tokens: nothing here overlaps with anything.
+//
+//   cross_section  medium  reconciling the same metric across seven drafts is
+//                          a recall problem over a bounded set of numbers, and
+//                          it resolves disagreements against the artifact with
+//                          `sra.py show` rather than by reasoning them out.
+//   conclusion     high    the verdict, the fair value, the key tests. This is
+//                          what the user asked for, and §15.3's gate reconciles
+//                          it arithmetically afterwards but cannot supply the
+//                          judgment.
+//   critique       high    the only whole-report adversarial read, and the
+//                          worklist the polish stage executes. An item this
+//                          stage misses is an item nothing downstream fixes;
+//                          an item it words vaguely is one the polish stage
+//                          cannot act on.
+//   polish         medium  executes two worklists that already say what to fix.
+//                          The empty-sentence sweep is genuine editorial
+//                          judgment, which is why this is `medium` and not
+//                          lower, and why it stays on the same model — it is
+//                          deleting from prose that ships.
+//   evaluate       medium  scores six dimensions and spot-checks ten claims
+//                          against their sources: verification against a
+//                          written rubric, not open reasoning.
+//
+// `evaluate` deliberately does NOT drop to a cheaper model, even though it is
+// the one stage whose output never reaches the reader. §23.3's quality gate is
+// "overall evaluator score >= 4.5" against a 4.7 baseline, so the evaluator is
+// the measuring stick — swapping its model moves the scale and makes scores
+// incomparable across runs. Cheapen the grader and you lose the gate, not the
+// grade.
+const STAGE_TUNING = {
+  cross_section: { effort: 'medium' },
+  conclusion: { effort: 'high' },
+  critique: { effort: 'high' },
+  polish: { effort: 'medium' },
+  evaluate: { effort: 'medium' },
+}
+
+// `{...undefined}` is legal JavaScript and spreads to nothing, so a stage key
+// that does not match its `agent()` call site loses its effort setting with no
+// error and no log line — the run just quietly costs what the session default
+// costs. Check the table against the stage list rather than trusting them to
+// stay in step.
+const untuned = ALL_STAGES.filter((s) => !STAGE_TUNING[s])
+if (untuned.length) log(`STAGE_TUNING missing: ${untuned.join(', ')} — those stages run at the session default`)
+
 log(`polish chain: ${sections.length} sections in reports/${report_date}`
     + ` — stages: ${requested.join(', ')}`)
 
 phase('Cross-check')
 const crossCheck = runs('cross_section') ? await agent(
   fill('cross_section.md', 'CONSISTENCY EDITOR', 'cross_section', {}),
-  { label: 'cross-check', agentType: 'sra-writer' },
+  { label: 'cross-check', agentType: 'sra-writer', ...STAGE_TUNING.cross_section },
 ) : null
 
 phase('Conclusion')
 const verdict = runs('conclusion') ? await agent(
   fill('conclusion.md', 'CONCLUSION WRITER', 'conclusion',
        { word_target: conclusionWords }),
-  { label: 'conclusion', agentType: 'sra-writer', schema: VERDICT_SCHEMA },
+  { label: 'conclusion', agentType: 'sra-writer', schema: VERDICT_SCHEMA,
+    ...STAGE_TUNING.conclusion },
 ) : null
 
 phase('Critique')
 const critique = runs('critique') ? await agent(
   fill('critique.md', 'WHOLE-REPORT CRITIC', 'critique', {}),
-  { label: 'critique', agentType: 'sra-writer' },
+  { label: 'critique', agentType: 'sra-writer', ...STAGE_TUNING.critique },
 ) : null
 
 phase('Polish')
 const polish = runs('polish') ? await agent(
   fill('polish.md', 'POLISH EDITOR', 'polish', {}),
-  { label: 'polish', agentType: 'sra-writer', schema: POLISH_SCHEMA },
+  { label: 'polish', agentType: 'sra-writer', schema: POLISH_SCHEMA,
+    ...STAGE_TUNING.polish },
 ) : null
 
 if (polish && polish.shrink_gate_passed === false) {
@@ -228,7 +282,8 @@ if (polish && polish.shrink_gate_passed === false) {
 phase('Evaluate')
 const evaluation = runs('evaluate') ? await agent(
   fill('evaluate.md', 'INDEPENDENT ASSESSOR', 'evaluate', {}),
-  { label: 'evaluate', agentType: 'sra-writer', schema: EVALUATION_SCHEMA },
+  { label: 'evaluate', agentType: 'sra-writer', schema: EVALUATION_SCHEMA,
+    ...STAGE_TUNING.evaluate },
 ) : null
 
 return {

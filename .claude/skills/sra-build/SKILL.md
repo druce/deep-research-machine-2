@@ -76,7 +76,9 @@ progress — keep it, and do not restamp.
 Otherwise:
 
 Invoke `/sra-prefetch TICKER [--peers "<CSV>"]`. It runs the deterministic
-gather, the seven deep-research topics and the URL harvest.
+gather, the seven budgeted research topics and the URL harvest. That phase is
+**seven subagents**, not seven hundred: if it reports more, the retired
+`deep-research` Workflow has crept back in (§11.2) and the build should stop.
 
 A failure of `profile`, `prices` or `financials` is fatal (§11.1 minimum viable
 input) — stop the build and report it. Every other kind degrades: record it in
@@ -228,7 +230,7 @@ what made every entry of the last PANW run `estimated`.
 
 But `subagent_tokens` is a **combined** total, not an input/output split, and
 `record_subagent` wants both. So split it at the observed ratio for that agent
-type (deep research and answerers run about 92% input / 8% output; writers
+type (prefetch topics and answerers run about 92% input / 8% output; writers
 nearer 90/10) and pass `estimated=True`. The TOTAL is measured and the split is
 apportioned — that is exactly the distinction the flag records, and claiming a
 measured split would be worse than admitting an apportioned one.

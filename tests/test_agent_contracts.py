@@ -326,8 +326,10 @@ def test_prefetch_skill_initializes_macro_before_gathering_it():
 def test_prefetch_skill_names_every_topic_prompt_that_exists():
     """§11.2's seven topics, matched against the prompt files themselves — a
     prompt added or renamed without touching the skill is a topic that never
-    runs."""
-    topics = {p.stem for p in TOPIC_PROMPTS.glob("*.md")}
+    runs. `_`-prefixed files are shared includes, not topics, matching the
+    `prompts/write/_shared.md` convention."""
+    topics = {p.stem for p in TOPIC_PROMPTS.glob("*.md")
+              if not p.stem.startswith("_")}
     assert len(topics) == 7, sorted(topics)
     body = prefetch_skill_text()
     for topic in topics:
@@ -335,12 +337,32 @@ def test_prefetch_skill_names_every_topic_prompt_that_exists():
     assert "prompts/prefetch_research/" in body
 
 
-def test_prefetch_skill_has_a_fallback_for_the_workflow():
-    """§11.2: `deep-research` is harness-provided, so it may not be there."""
+def test_every_topic_prompt_defers_to_the_shared_contract():
+    """The budget lives in one file. A topic that does not send the agent there
+    is a topic with no search ceiling — which is how prefetch came to spend 93%
+    of a build's tokens."""
+    shared = TOPIC_PROMPTS / "_shared.md"
+    assert shared.exists()
+    for path in TOPIC_PROMPTS.glob("*.md"):
+        if path.stem.startswith("_"):
+            continue
+        assert "_shared.md" in path.read_text(encoding="utf-8"), path.name
+
+
+def test_the_shared_contract_caps_the_search_budget():
+    """§11.2: the ceiling is the whole point of retiring `deep-research`."""
+    body = (TOPIC_PROMPTS / "_shared.md").read_text(encoding="utf-8")
+    assert re.search(r"\b14 searches\b", body)
+    assert re.search(r"do not search", body, re.I)
+
+
+def test_prefetch_dispatches_researchers_not_the_deep_research_workflow():
+    """§11.2: the harness Workflow is retired — it accepts no budget, no model
+    and no effort, and measured 728 subagents / 20.65M tokens on TOST."""
     body = prefetch_skill_text()
-    assert "deep-research" in body
     assert "sra-researcher" in body
-    assert re.search(r"fallback", body, re.I)
+    assert 'Workflow({ name: "deep-research"' not in body
+    assert "prompts/prefetch_research/_shared.md" in body
 
 
 def test_prefetch_skill_reads_prefetch_exit_codes():
@@ -354,12 +376,20 @@ def test_prefetch_skill_reads_prefetch_exit_codes():
 
 def test_prefetch_answers_are_silver_and_carry_their_urls():
     """§11.2: the research answer is never evidence; its `cited_urls` are what
-    `fetch-urls` turns into evidence."""
-    body = prefetch_skill_text()
-    assert "write_answer" in body
-    assert "derived/answers/" in body
-    assert "cited_urls" in body
-    assert re.search(r"never .{0,20}evidence", body, re.I)
+    `fetch-urls` turns into evidence.
+
+    The skill no longer writes the answer — the `sra-researcher` agents do, so
+    the orchestrator never holds seven research bodies in its context. The
+    invariant is unchanged and now has to hold in the brief the agents read.
+    """
+    skill = prefetch_skill_text()
+    assert "derived/answers/" in skill
+    assert re.search(r"answer is not evidence|not evidence", skill, re.I)
+
+    shared = (TOPIC_PROMPTS / "_shared.md").read_text(encoding="utf-8")
+    assert "cited_urls" in shared
+    assert re.search(r"never evidence", shared, re.I)
+    assert "## Sources" in shared
 
 
 def test_chartbook_skill_exists_and_points_at_its_rubric():
@@ -509,21 +539,3 @@ def test_write_skill_verifies_the_draft_itself():
     assert "sra.py validate" in body
 
 
-def test_prefetch_answer_snippet_matches_source_meta():
-    """Same guard as the researcher's: the snippet is copied verbatim by a
-    model that cannot see the dataclass."""
-    calls = [
-        node
-        for block in python_blocks(prefetch_skill_text())
-        for node in ast.walk(ast.parse(block))
-        if isinstance(node, ast.Call)
-        and getattr(node.func, "id", None) == "SourceMeta"
-    ]
-    assert len(calls) == 1
-
-    passed = {kw.arg for kw in calls[0].keywords if kw.arg}
-    known = {f.name for f in fields(SourceMeta)}
-    required = {f.name for f in fields(SourceMeta)
-                if f.default is MISSING and f.default_factory is MISSING}
-    assert passed <= known, f"unknown SourceMeta fields: {sorted(passed - known)}"
-    assert required <= passed, f"missing required fields: {sorted(required - passed)}"

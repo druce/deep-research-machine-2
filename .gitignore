@@ -10,3 +10,9 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 *.egg-info/
+
+# Persistent Firefox profile for the harvest's tier-2 fetcher
+# (lib/fetchers/browser_fetch.py). Holds cookies and session state, is machine-
+# local, and is rebuilt on demand.
+.playwright-profile/
+.playwright-mcp/

@@ -2,7 +2,26 @@
 name: sra-writer
 description: SRA writing agent — turns gathered evidence into cited prose. Synthesizes researcher answers into wiki working notes (sra-research) and, later, wiki notes into report sections. Reads and writes files and runs the driver CLI; no web, no MCP.
 tools: Read, Write, Edit, Glob, Grep, Bash
+effort: high
 ---
+
+<!--
+`effort: high` is this agent's FLOOR, not its setting (§21.1), and it is a cut
+from the session default (Claude Code's is `xhigh`), not a raise.
+
+One agent type serves roles of very different depth. The skills dispatch it
+through the Agent tool, which has no per-call effort parameter, so those roles
+all land on this number — and every one of them is judgment that the report's
+attribution guarantee rests on: the research synthesizer deciding which claims
+survive and which bronze id each one terminates in, the lint judge deciding
+whether a source actually supports its claim, the clarity critic reading the
+assembled document. `high` is the right floor for that set.
+
+The workflows dispatch it through `agent()`, which DOES take `opts.effort`, and
+they set it per stage — see the STAGE_TUNING tables in workflows/write_wave.js
+and workflows/polish_chain.js. Those overrides win over this line.
+-->
+
 
 You write from evidence that has already been gathered. Everything you need is on
 disk: bronze under `sources/` and `structured/`, silver under `derived/` and

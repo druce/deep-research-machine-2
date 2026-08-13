@@ -28,6 +28,7 @@ from pathlib import Path
 
 from lib.charts.common import number, read_artifact, read_derived
 from lib.hard_checks import run_checks
+from lib.render.lint_render import lint_rendered
 from lib.references import (
     build_references_md, collect_citations, renumber, write_citation_map,
 )
@@ -640,6 +641,15 @@ def assemble(ticker_dir: Path, run_dir: Path) -> tuple[bool, dict, str | None]:
         None if not html_path.exists() else to_pdf(html_path, pdf_path),
     ) if message]
 
+    # Lint what was just written, not what we believe was written (§22.4). Both
+    # deliverables are read back off disk and checked SEPARATELY: the PDF is
+    # rendered from the HTML, so it is tempting to treat a clean HTML as proof
+    # the PDF is clean, and that is wrong twice over. The PDF applies print-only
+    # CSS the HTML view never exercises, and a hand-edited HTML leaves the PDF
+    # beside it untouched — a real run shipped exactly that, a repaired
+    # report.html next to a report.pdf still printing stylesheet comments.
+    render_lint = lint_rendered(run_dir, stem=REPORT_STEM)
+
     data = {
         "markdown": md_path,
         "html": html_path if html_path.exists() else None,
@@ -651,6 +661,11 @@ def assemble(ticker_dir: Path, run_dir: Path) -> tuple[bool, dict, str | None]:
         "warnings": (chart_warnings + body_warnings
                      + peer_table_warnings(variables["peers"])),
         "render_errors": render_errors,
+        # A build defect with a named cause, kept apart from `render_errors`,
+        # which are §22.3 degradations (no pandoc, no Pango) that still ship.
+        "render_problems": render_lint["problems"],
+        "render_lint_skipped": render_lint["skipped"],
+        "render_lint_checked": render_lint["checked"],
     }
     _update_run_stats(run_dir, {
         "run": run_dir.name,
@@ -662,5 +677,6 @@ def assemble(ticker_dir: Path, run_dir: Path) -> tuple[bool, dict, str | None]:
         # §22.3: a render failure degrades into a reported error rather than a
         # crash — the assembled markdown is on disk either way.
         "render_errors": render_errors,
+        "render_problems": render_lint["problems"],
     })
     return True, data, None

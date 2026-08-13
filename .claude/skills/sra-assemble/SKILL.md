@@ -22,6 +22,7 @@ write wave
 → sra.py charts T --verdict
 → /sra-chartbook
 → sra.py assemble T
+→ sra.py lint-render T   + read the rendered pages (§22.4)
 → sra.py validate T
 → sra.py snapshot T
 ```
@@ -114,12 +115,15 @@ Snapshot the current drafts first — the fix pass measures against them:
 cp -R <RUN_DIR>/sections <RUN_DIR>/sections_preclarity
 ```
 
-1. **Critique.** Dispatch one agent with `prompts/polish/clarity.md`, filling
-   `{report_path}` = `<RUN_DIR>/report.md`, `{sections_dir}` =
-   `<RUN_DIR>/sections`, `{clarity_path}` = `<RUN_DIR>/clarity.md`.
+1. **Critique.** Dispatch one `sra-writer` with `prompts/polish/clarity.md`,
+   filling `{report_path}` = `<RUN_DIR>/report.md`, `{sections_dir}` =
+   `<RUN_DIR>/sections`, `{clarity_path}` = `<RUN_DIR>/clarity.md`. Leave the
+   model alone — this is the only first-reader pass over the assembled
+   document, and the ambiguities it hunts are the ones every section-local
+   critic already missed.
 
-2. **Fix.** Dispatch one `sra-writer` to apply that worklist to the section
-   files, checking each one it touches:
+2. **Fix.** Dispatch one `sra-writer` with `model: "sonnet"` to apply that
+   worklist to the section files, checking each one it touches:
 
 ```bash
 uv run python -m lib.hard_checks <RUN_DIR>/sections/<section>.md \
@@ -131,6 +135,15 @@ uv run python -m lib.hard_checks <RUN_DIR>/sections/<section>.md \
    budget across all items; a fixer that cannot fit one must declare the skip
    with its reason rather than dropping it silently.
 
+   `model: "sonnet"` is deliberate and is the only model downgrade in the
+   pipeline (§21.1). `prompts/polish/clarity.md` requires the critic to "quote
+   the span and write the replacement — not a description of the replacement",
+   so this agent receives the finished prose and applies it. That is execution
+   against a written patch list, which is the one task shape here that carries
+   no judgment the critic did not already make. If a run shows this stage
+   *rewriting* rather than applying, the defect is a critique that described
+   its fixes instead of writing them — fix the critique, not the model.
+
 3. **Re-assemble.** The fixes landed in section files, not in `report.md`:
 
 ```bash
@@ -139,6 +152,60 @@ uv run python sra.py assemble <TICKER>
 
 Skipping the re-assemble ships the unfixed report with a clarity worklist
 sitting beside it. If the clarity pass returned zero items, skip steps 2 and 3.
+
+## Step 3c — Look at what the reader gets (§22.4)
+
+Every gate before this one reads the report as *source* — drafts, markdown,
+citations against bronze. Nothing had looked at the rendered deliverable, and
+that gap shipped a report with its own stylesheet printed above the masthead in
+both the HTML and the PDF.
+
+**The deterministic half runs first, and it is a gate.** `assemble` already ran
+it on what it just wrote, so this is the re-check after the clarity pass:
+
+```bash
+uv run python sra.py lint-render <TICKER>
+```
+
+Exit 1 means the document contains the machinery that produced it — leaked CSS,
+an unrendered `{{ variable }}`, a literal HTML comment. Every one of those is a
+template defect with a named cause. **Fix the template and re-assemble; never
+hand-edit `report.html`.** A hand-edit leaves `report.pdf` beside it untouched,
+which is exactly how a run came to have a clean HTML and a corrupt PDF.
+
+It reads BOTH deliverables off disk. A `skipped` entry (no `pdftotext`) is a
+degradation to report, not a failure.
+
+**Then look at it**, because a regex cannot see a table split across a page
+break, an exhibit that rendered blank, or a column of numbers running off the
+plate. Turn the real PDF into images and read them:
+
+```bash
+pdftoppm -png -r 100 -f 1 -l 2 <RUN_DIR>/report.pdf /tmp/<TICKER>_pg
+```
+
+Read the generated PNGs. Sample rather than sweep: **page 1** (masthead, KPI
+strip, verdict card — where leaked template text lands), **a body page carrying
+an exhibit**, and **the first references page**. On a 50-page report that is
+three images, not fifty.
+
+What to look for, in order of how often it has actually gone wrong: text above
+the masthead that is not part of the report; an exhibit that is blank, clipped,
+or captioned with a filename; a peer table whose cells all read `N/A`; a table
+or figure orphaned from its heading across a page break; numbers overflowing
+their column.
+
+For the HTML specifically — hover states, and whether the citation markers
+actually jump to the reference and back — open it with Playwright instead:
+
+```
+browser_navigate  file://<abs RUN_DIR>/report.html
+browser_snapshot
+```
+
+Anything you find is a template or chartbook defect. Fix the cause and
+re-assemble; the deliverables are generated files and editing one is a repair
+that the next `assemble` silently discards.
 
 ## Step 4 — Validate, then snapshot
 
@@ -171,3 +238,7 @@ how many citations the report carries, which render formats were produced, any
 `warnings` assembly reported (a `peer table:` warning means the comparison table
 shipped empty), and the snapshot name. If `validate` found anything, name the
 finding rather than summarizing it as "some issues".
+
+Say which pages you actually looked at, and what you saw. "Rendered pages
+checked" with no page numbers is the report of someone who skipped the step —
+name the pages and say the masthead was clean, or name what was not.

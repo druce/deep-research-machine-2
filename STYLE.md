@@ -86,17 +86,25 @@ above all stay. Only the syntax changes.
 7. **Headings are labels.** "Balance sheet and dilution", "SASE", "Return on capital", "Peer
    benchmark". Not "Leverage is not a credit question; it is a share-count question". The thesis
    goes in the section's first sentence, where the reader is already looking.
-8. **Complete sentences, always.** No verbless fragments, no headline-ese. "Data gravity: XSIAM
+8. **Lead with the concrete.** The section's first sentence is the one line a skimming reader
+   is guaranteed to read. Spend it on the most important thing the section establishes, stated
+   in full — a figure, a named party, a dated event, or the analytical takeaway itself. Not a
+   frame, not a category, not a promise that the interesting part is coming. A lead with no
+   number, no proper noun and no date is almost always a frame. Two tests: delete the sentence,
+   and if the section loses no information it was a frame; and if the sentence would be equally
+   true of a competitor, it is not a lead. State the fact, then interpret it — never withhold
+   it for a later sentence to reveal.
+9. **Complete sentences, always.** No verbless fragments, no headline-ese. "Data gravity: XSIAM
    ARR above $600 million, up 100% across 740 customers" is a caption, not prose. This rule
    does not bend for the word budget. If the sentence will not fit, the *point* does not fit —
    drop it and keep the ones that survive whole. "…cancel on 90 days' notice, Google's from the
    turn of the year" is what this rule exists to prevent: an elliptical clause carrying a date
    that belongs to a different company.
-9. **American spelling throughout.** amortization, organization, recognized, platformized,
+10. **American spelling throughout.** amortization, organization, recognized, platformized,
    realized, labeled. Not amortisation, organisation, recognised.
-10. **Cut the third item.** Where you have written a triad, keep the two that carry numbers.
+11. **Cut the third item.** Where you have written a triad, keep the two that carry numbers.
     Three-part lists read as rhetoric unless the list is genuinely exhaustive.
-11. **Bullets are allowed for a parallel enumeration.** Risks, catalysts, drivers, a top-five:
+12. **Bullets are allowed for a parallel enumeration.** Risks, catalysts, drivers, a top-five:
     these are lists, and a list reads faster as a list. Each bullet is still a complete sentence
     with a number in it. What may never be bulleted is the *argument* — the connective tissue
     between claim, evidence and implication is the analysis, and stripping it to fragments is
@@ -114,6 +122,23 @@ above all stay. Only the syntax changes.
 | Check Point is the clearest donor at 6% fiscal 2025 revenue growth. | Check Point is the most likely share donor. FY2025 revenue grew 6%. |
 | Nir Zuk's resignation, softened by an advisory glide path to November 2, 2026. | Nir Zuk resigned as CTO and director effective August 14, 2025, staying on as an advisor through November 2, 2026. |
 | Volatility, not terminal value. | We read the Evercore cut as a volatility event, not a change to terminal value. |
+
+### Leads
+
+The first sentence of a section fails differently from the rest of it, and it is the most
+expensive sentence to get wrong. Each of these shipped as an opening line. None contains a
+number, a name or a date; each announces a subject instead of stating a finding. In two of the
+three, the fact the lead should have carried was already sitting in the writer's *second*
+sentence — the fix was to promote it, not to write anything new.
+
+| Frame, not a lead | What it should have said |
+|---|---|
+| The two largest risks on this name are unmarked in the accounts, and neither will announce itself with a charge. | Neither of the two largest risks appears as a liability: $8.5 billion of non-cancelable purchase commitments, and three distributors carrying 44.2% of fiscal 2025 revenue. |
+| The binding risk is not execution, it is the distance between delivery and price. | Palo Alto Networks has beaten consensus EPS in every quarter on record back to 2020, and the stock still fell 5.6% after the largest beat in its history. |
+| Palo Alto Networks owns none of its physical supply chain, and its real concentrations are not the ones a hardware screen would find: not silicon, but distributors and a cloud book. | Flex assembles all of Palo Alto Networks' hardware and can terminate the arrangement for its own convenience. The balance sheet carries no inventory line at all. |
+
+The tell in all three is the same: the sentence tells you what *kind* of thing is coming — a
+risk, a concentration, a distance — and makes you read on to learn which. Name it in the lead.
 
 ### Compressed past readability
 
@@ -133,6 +158,8 @@ procedure is under *Length* in the shared writing contract.
 
 ### Count these before you report a draft done
 
+- Section leads carrying no number, proper noun or date: **0** — read your first sentence on
+  its own and ask what fact a reader takes from it
 - "X, not Y" constructions: **at most 1** per section
 - Em dashes: **at most 1 per paragraph**
 - Sentences whose subject is "The &lt;abstract noun&gt;": **at most 2** per section

@@ -628,17 +628,27 @@ h1, h2, h3, h4 { break-after: avoid; }
   .chip { border: 1px solid currentColor; }
   .peer-table tbody tr:first-child { outline: 2px solid currentColor; }
 }
-</style>
 
 /* --- citation anchors ---------------------------------------------------
    Markers are superscript links into the References list; each entry links
    back to every place it was cited. `scroll-margin-top` keeps a jump target
    clear of the running header instead of landing underneath it. */
 
-.cite a {
+/* The marker is `<sup class="cite"><a>`, so the raise belongs on the sup and
+   ONLY there: `<sup>` already carries `vertical-align: super` from the user
+   agent, and repeating it on the inner anchor superscripts a superscript —
+   markers ride above the ascender and open a visible gap before the following
+   punctuation. That went unseen for as long as these rules sat below the close
+   tag and never applied at all; fixing the fragment is what surfaced it. */
+
+.cite {
   font-size: .72em;
-  vertical-align: super;
   line-height: 0;
+}
+
+.cite a {
+  font-size: inherit;
+  vertical-align: baseline;
   text-decoration: none;
   color: var(--info);
   padding: 0 .08em;
@@ -664,3 +674,20 @@ h1, h2, h3, h4 { break-after: avoid; }
 
 /* Half a line between reference entries — the dense list is unreadable. */
 #references p, #references li { margin-bottom: .6em; }
+
+/* This file is an HTML FRAGMENT, not a stylesheet: it opens with a style tag on
+   line 1 and must close with the matching end tag on the last line, because
+   `--include-in-header` splices it into pandoc's head verbatim. Append new
+   rules ABOVE that closing tag.
+
+   Getting it wrong is silent and expensive. The citation-anchor block above was
+   once appended BELOW the close tag: those rules never applied — markers went
+   unstyled and :target highlighting never worked — while their raw text,
+   comments included, rendered as body copy in both the HTML and the PDF.
+
+   Never write a literal style end tag anywhere in this file, not even inside a
+   comment like this one: HTML ends the element at the first such sequence and
+   does not care that CSS considers it commented out. That is the same defect
+   wearing a different hat. `lib/render/lint_render.py` fails the build for
+   both (§22.4). */
+</style>

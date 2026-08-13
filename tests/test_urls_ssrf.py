@@ -64,10 +64,19 @@ def test_spec_constants():
     assert MAX_REDIRECTS == 3
     assert MAX_BYTES == 5 * 1024 * 1024
     assert TIMEOUT_SECONDS == 20
-    assert MAX_MARKDOWN_CHARS == 200_000
+    assert MAX_MARKDOWN_CHARS == 1_500_000
     assert WEB_PAGE_POLICY_DAYS == 30
     assert MIME_ALLOWLIST == frozenset({
-        "text/html", "text/plain", "application/pdf", "application/xhtml+xml"})
+        "text/html", "text/plain", "application/pdf", "application/xhtml+xml",
+        "application/json"})
+
+
+def test_the_markdown_cap_holds_a_whole_10k():
+    """The old 200k cap cut six of TOST's SEC filings off mid-MD&A, before Item
+    7A and the notes — the parts a research question reaches a filing for. A
+    large 10-K's extracted text runs past a million characters."""
+    assert MAX_MARKDOWN_CHARS >= 1_000_000
+    assert MAX_MARKDOWN_CHARS * 1 <= MAX_BYTES  # never keep more than we may read
 
 
 # --- scheme allowlist ------------------------------------------------------
@@ -265,8 +274,7 @@ def test_rejects_oversized_declared_content_length():
 # --- MIME allowlist --------------------------------------------------------
 
 @pytest.mark.parametrize("content_type", [
-    "application/zip", "application/octet-stream", "image/png",
-    "application/json", "text/csv",
+    "application/zip", "application/octet-stream", "image/png", "text/csv",
 ])
 def test_rejects_content_types_outside_the_allowlist(content_type):
     ok, data, err = fetch_url_to_markdown(
@@ -285,6 +293,21 @@ def test_accepts_text_plain():
     assert (ok, err) == (True, None)
     assert data["markdown"] == "just words"
     assert data["content_type"] == "text/plain"
+
+
+def test_accepts_application_json_verbatim():
+    """SEC's own data endpoints serve JSON, and a researcher citing one had the
+    fetch refused as `mime_not_allowed` — TOST lost three that way. It is stored
+    byte-for-byte: reformatting would make the stored text disagree with the
+    endpoint it claims to be."""
+    body = '{"cik": 1650164, "units": {"USD": [{"val": 1234}]}}'
+    ok, data, err = fetch_url_to_markdown(
+        "https://data.sec.gov/api/x",
+        client=client_serving(html_response(body, content_type="application/json")),
+        resolver=public_resolver)
+    assert (ok, err) == (True, None)
+    assert data["markdown"] == body
+    assert data["content_type"] == "application/json"
 
 
 def test_rejects_http_error_status():
@@ -357,10 +380,10 @@ def test_script_and_style_text_is_not_extracted():
     assert "color:red" not in data["markdown"]
 
 
-def test_markdown_is_truncated_at_200k_and_flagged():
-    """§8.3.1: truncation at 200k chars, and the fact of it is recorded so a
-    reader of the source knows the document is partial."""
-    big = "<html><body>" + ("<p>" + "word " * 40 + "</p>") * 2000 + "</body></html>"
+def test_markdown_is_truncated_at_the_cap_and_flagged():
+    """§8.3.1: truncation at `MAX_MARKDOWN_CHARS`, and the fact of it is recorded
+    so a reader of the source knows the document is partial."""
+    big = "<html><body>" + ("<p>" + "word " * 40 + "</p>") * 8000 + "</body></html>"
     ok, data, _err = fetch_url_to_markdown(
         "https://example.com/long", client=client_serving(html_response(big)),
         resolver=public_resolver)

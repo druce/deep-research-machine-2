@@ -257,6 +257,39 @@ const CRITIQUE_SCHEMA = {
   additionalProperties: true,
 }
 
+// Effort per STAGE, not per agent type (spec §21.1). All three stages are the
+// same `sra-writer`, dispatched here through `agent()`, which takes an explicit
+// `opts.effort` — so the agent definition's `effort: high` is a floor these
+// override rather than a setting they inherit. Every stage names its level, so
+// changing the session default never silently re-prices the write wave.
+//
+// This is the pipeline's single largest block: 7 x 3 agents, 2.56M input tokens
+// on the PANW build, 32% of the run (§23.3).
+//
+//   write    high    generative prose from the wiki page. The product.
+//   critic   high    resolves every citation with `sra.py show` and hunts the
+//                    claim the draft cannot support. This stage is the reason
+//                    the wave costs three agents instead of one; running it
+//                    cheap would buy back tokens by removing the check they
+//                    were spent on.
+//   rewrite  medium  applies a worklist that already names what to fix and
+//                    why. The judgment happened in the critic; this stage is
+//                    execution against it, plus the hard checks. Kept on the
+//                    same model rather than dropped to Sonnet because it is
+//                    still authoring the prose that ships, against STYLE.md.
+const STAGE_TUNING = {
+  write: { effort: 'high' },
+  critic: { effort: 'high' },
+  rewrite: { effort: 'medium' },
+}
+
+// `{...undefined}` is legal JavaScript and spreads to nothing, so a key that
+// does not match its `agent()` call site loses its effort setting with no error
+// and no log line — the stage just quietly costs what the session default
+// costs. Name the three stages once and check them.
+const untuned = ['write', 'critic', 'rewrite'].filter((s) => !STAGE_TUNING[s])
+if (untuned.length) log(`STAGE_TUNING missing: ${untuned.join(', ')} — those stages run at the session default`)
+
 // Longest first: under the concurrency cap the last section to be dispatched is
 // the one that waits, and it should be the cheapest one.
 const ordered = sections.slice().sort(
@@ -275,6 +308,7 @@ async function runSection(section) {
     phase,
     agentType: 'sra-writer',
     schema: STAGE_SCHEMA,
+    ...STAGE_TUNING.write,
   })
 
   // Later stages are built from the ORIGINAL section, never from the previous
@@ -285,6 +319,7 @@ async function runSection(section) {
     phase,
     agentType: 'sra-writer',
     schema: CRITIQUE_SCHEMA,
+    ...STAGE_TUNING.critic,
   })
 
   const rewrite = await agent(rewritePrompt(section), {
@@ -292,6 +327,7 @@ async function runSection(section) {
     phase,
     agentType: 'sra-writer',
     schema: STAGE_SCHEMA,
+    ...STAGE_TUNING.rewrite,
   })
 
   // The rewrite is the section's final word; the draft stands only if the

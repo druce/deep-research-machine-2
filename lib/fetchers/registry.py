@@ -38,11 +38,17 @@ Fetcher = Callable[..., "tuple[bool, list[Path], str | None]"]
 KIND_ORDER: tuple[str, ...] = (
     "profile", "prices", "technical", "financials", "estimates", "targets",
     "calendar", "peers", "filings", "transcript", "wikipedia", "news",
-    "perplexity",
+    "ownership", "perplexity",
 )
 
-# perplexity is an opt-in supplement: the primary prefetch web research runs
-# through the deep-research Workflow (§11.2).
+# perplexity is an opt-in supplement: the primary prefetch web research runs as
+# seven budgeted `sra-researcher` agents (§11.2).
+#
+# `ownership` IS a default. It needs OpenBB, which is not a dependency of this
+# project, but the fetcher degrades to a warning when no OpenBB interpreter is
+# configured — the same shape as a dead provider — so including it costs a
+# machine without OpenBB nothing and saves every machine with it from paying an
+# agent to web-search Form 4 filings.
 DEFAULT_KINDS: list[str] = [k for k in KIND_ORDER if k != "perplexity"]
 
 # §11.1 minimum viable input. Failure of one of these stops /sra-build; every

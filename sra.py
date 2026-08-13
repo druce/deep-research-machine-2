@@ -26,7 +26,8 @@ from lib.fetchers import fred, multpl
 from lib.fetchers.calendar import last_earnings_date
 from lib.fetchers.multpl import MULTPL_SERIES
 from lib.fetchers.peers import fetch_peers, peers_path, read_user_peers
-from lib.fetchers.urls import harvest_answer, harvest_targets
+from lib.fetchers.urls import (
+    DEFAULT_HARVEST_PARALLEL, MAX_MARKDOWN_CHARS, harvest_answer, harvest_targets)
 from lib.fetchers.registry import (
     DEFAULT_KINDS,
     FETCHERS,
@@ -49,6 +50,7 @@ from lib.provenance import (
     StructuredMeta, _reject_path_traversal, read_structured, resolve_artifact,
     resolve_source, write_derived)
 from lib.render.assemble import assemble
+from lib.render.lint_render import lint_rendered
 from lib.render.runs import (
     is_snapshotted, link_latest, resolve_run, run_dirs, write_snapshot)
 from lib.questions import (
@@ -947,18 +949,20 @@ def cmd_fetch_urls(args: argparse.Namespace) -> int:
             return 1
         targets = [path]
     else:
-        targets = harvest_targets(d)
+        targets = harvest_targets(d, retry_failed=args.retry_failed)
 
     now = _utcnow()
     fetched: list[str] = []
     skipped: list[str] = []
     errors: dict[str, str] = {}
+    truncated: list[str] = []
 
     try:
         with TickerLock(d, "fetch-urls", force=args.force_lock):
             for target in targets:
                 try:
-                    result = harvest_answer(d, target, args.max, now=now)
+                    result = harvest_answer(d, target, args.max, now=now,
+                                            parallel=args.parallel)
                 except (KeyError, ValueError, OSError) as exc:
                     # §8.3's one fatal condition: the answer file itself is
                     # unreadable. Only reachable with --from, since the bulk
@@ -969,14 +973,21 @@ def cmd_fetch_urls(args: argparse.Namespace) -> int:
                 fetched += result["fetched"]
                 skipped += result["skipped"]
                 errors.update(result["errors"])
+                truncated += result["truncated"]
     except LockHeldError as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
     for url, reason in errors.items():
         print(f"warning: {url}: {reason}", file=sys.stderr)
-    print(json.dumps({"fetched": fetched, "skipped": skipped, "errors": errors},
-                     indent=2))
+    # A partial capture is more dangerous than a failed one — it is cited with
+    # full confidence — so truncation is warned about, not merely recorded in
+    # the source's frontmatter where nothing reads it.
+    for url in truncated:
+        print(f"warning: {url}: stored, but truncated at "
+              f"{MAX_MARKDOWN_CHARS} characters", file=sys.stderr)
+    print(json.dumps({"fetched": fetched, "skipped": skipped, "errors": errors,
+                      "truncated": truncated}, indent=2))
     return 0
 
 
@@ -1250,6 +1261,10 @@ def cmd_assemble(args: argparse.Namespace) -> int:
 
     for message in data["render_errors"]:
         print(f"warning: {message}", file=sys.stderr)
+    for message in data["render_lint_skipped"]:
+        print(f"warning: render lint skipped — {message}", file=sys.stderr)
+    for message in data["render_problems"]:
+        print(f"render defect: {message}", file=sys.stderr)
     print(json.dumps({
         "run": run_dir.name,
         "markdown": str(data["markdown"]),
@@ -1258,8 +1273,64 @@ def cmd_assemble(args: argparse.Namespace) -> int:
         "citations": data["citations"],
         "exhibits": data["exhibits"],
         "render_errors": data["render_errors"],
+        "render_problems": data["render_problems"],
+        "render_lint_checked": data["render_lint_checked"],
     }, indent=2))
-    return 0
+    # The JSON is printed either way — the paths are what a caller needs in
+    # order to go and look. But a deliverable with its own stylesheet printed
+    # in the body does not ship, so this is exit 1 like every other contract
+    # failure (§22.4), not a warning the assembler shrugs at.
+    return 1 if data["render_problems"] else 0
+
+
+def cmd_lint_render(args: argparse.Namespace) -> int:
+    """Check a run's rendered deliverables for template leakage (§22.4).
+
+    `assemble` already runs this on what it just wrote, so the standalone
+    command exists for the two cases assemble cannot cover: a snapshotted run,
+    which is immutable and must never be re-assembled to be re-checked, and a
+    deliverable edited by hand afterwards. The second is not hypothetical — a
+    hand-repaired `report.html` leaves the `report.pdf` beside it untouched,
+    and only a check that reads both off disk notices.
+
+    Read-only and deterministic: no lock, safe against a run still in flight.
+    Exit 1 on any finding, 0 when clean or when there was nothing to read.
+    """
+    resolved = _resolve_ticker(args)
+    if resolved is None:
+        return 1
+    ticker, d = resolved
+    if not _require_initialized(ticker, d):
+        return 1
+
+    # Deliberately NOT `resolve_run`'s default. That resolves to the newest
+    # run not yet snapshotted — correct for `assemble`, which is about to write
+    # one, and useless here, where it names a directory that does not exist yet.
+    # A read-only check wants the newest run that actually HAS deliverables,
+    # which for a finished build is the snapshotted one `reports/latest` points
+    # at. An explicit --run still wins.
+    if args.run is not None:
+        run_dir = resolve_run(d, args.run, _utcnow().date())
+    else:
+        rendered = [r for r in run_dirs(d)
+                    if (r / "report.html").exists() or (r / "report.pdf").exists()]
+        if not rendered:
+            print(f"{ticker}: no run under reports/ has a rendered report "
+                  f"(run: sra.py assemble {ticker})", file=sys.stderr)
+            return 1
+        run_dir = rendered[-1]
+
+    if not run_dir.is_dir():
+        print(f"{ticker}: no report run at {run_dir}", file=sys.stderr)
+        return 1
+
+    result = lint_rendered(run_dir)
+    for message in result["skipped"]:
+        print(f"warning: {message}", file=sys.stderr)
+    for message in result["problems"]:
+        print(f"render defect: {message}", file=sys.stderr)
+    print(json.dumps({"run": run_dir.name, **result}, indent=2))
+    return 1 if result["problems"] else 0
 
 
 def cmd_run_log(args: argparse.Namespace) -> int:
@@ -1524,6 +1595,14 @@ def build_parser() -> argparse.ArgumentParser:
                          "(default: every document with unharvested cited_urls)")
     sp.add_argument("--max", type=int, default=None,
                     help="cap the number of URLs fetched per document")
+    sp.add_argument("--parallel", type=int, default=DEFAULT_HARVEST_PARALLEL,
+                    help=f"URLs fetched concurrently per document "
+                         f"(default: {DEFAULT_HARVEST_PARALLEL}; 1 is strictly "
+                         f"in order)")
+    sp.add_argument("--retry-failed", action="store_true",
+                    help="re-attempt URLs previously recorded as failed; the "
+                         "bulk path skips them by default so a dead link is not "
+                         "hammered on every run")
 
     add("validate", cmd_validate, mutating=False)
 
@@ -1540,6 +1619,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "reading reports/latest/verdict.json (§16.4)")
 
     sp = add("assemble", cmd_assemble, mutating=True)
+    sp.add_argument("--run", default=None,
+                    help="run directory name under reports/ (default: the "
+                         "newest run that has not been snapshotted)")
+
+    sp = add("lint-render", cmd_lint_render, mutating=False)
     sp.add_argument("--run", default=None,
                     help="run directory name under reports/ (default: the "
                          "newest run that has not been snapshotted)")

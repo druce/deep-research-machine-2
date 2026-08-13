@@ -47,6 +47,21 @@ dependencies = [
     "openai>=2.21",
     # HTML -> PDF rendering for reports (needs cairo/pango system libraries).
     "weasyprint>=62",
+    # lib/fetchers/urls.py: PDF text extraction for harvested pages. Was optional,
+    # and its absence silently cost the TOST run eight investor-relations PDFs
+    # (`pdf_extraction_unavailable`), so it is a hard dependency now. The
+    # ImportError branch in `pdf_to_text` stays for stripped environments.
+    "pypdf>=5.1",
+    # lib/fetchers/browser_fetch.py: tier 2 of the harvest failover chain. A
+    # third of the URLs a research phase cites are refused by publishers that
+    # answer a real browser fine. Needs `playwright install firefox` once;
+    # imported lazily, and the tier degrades to a named failure without it.
+    "playwright>=1.49",
+    "playwright-stealth>=2.0",
+    # lib/fetchers/brightdata_fetch.py: tier 3, Bright Data's Web Unlocker, for
+    # the hosts a browser on our own egress still cannot reach. Keyed on
+    # BRIGHTDATA_API_KEY; likewise lazy and likewise optional at runtime.
+    "brightdata-sdk>=2.3",
 ]
 
 [dependency-groups]

@@ -54,14 +54,20 @@ def test_kind_order_matches_the_spec():
     assert KIND_ORDER == (
         "profile", "prices", "technical", "financials", "estimates", "targets",
         "calendar", "peers", "filings", "transcript", "wikipedia", "news",
-        "perplexity",
+        "ownership", "perplexity",
     )
 
 
 def test_perplexity_is_opt_in():
-    """§11.1: the twelve default kinds; perplexity is a supplement."""
+    """§11.1: the thirteen default kinds; perplexity is a supplement.
+
+    `ownership` IS a default even though it needs OpenBB, which this project
+    does not depend on: the fetcher degrades to a warning when no OpenBB
+    interpreter is configured, exactly as a dead provider would, so a machine
+    without it pays nothing.
+    """
     assert DEFAULT_KINDS == [k for k in KIND_ORDER if k != "perplexity"]
-    assert len(DEFAULT_KINDS) == 12
+    assert len(DEFAULT_KINDS) == 13
 
 
 def test_fatal_kinds_are_the_minimum_viable_input():

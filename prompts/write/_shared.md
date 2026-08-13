@@ -167,6 +167,15 @@ as an assertion with no number behind it.
   A paragraph that lists facts without connecting them to the case fails.
 - **Position taken**: tensions are stated, quantified on both sides, and
   resolved with a view. Both-sides-and-stop is a failure.
+- **Lead**: read the section's first sentence on its own and ask what fact a reader
+  takes from it. It must state the most important thing the section establishes —
+  a figure, a named party, a dated event, or the takeaway in full. A lead that
+  announces a subject rather than stating a finding ("The two largest risks here
+  are unmarked in the accounts", "The binding risk is not execution, it is the
+  distance between delivery and price") is a defect even when the paragraph under
+  it is excellent. Check the second sentence before proposing new prose: the fact
+  the lead should carry is usually already there, and the fix is to promote it.
+  See *Leads* in `STYLE.md`.
 - **Ownership**: no fact this section does not own is restated with its number.
 - **Opinion vs fact**: judgments are framed as judgments, facts as facts.
 - **Style**: no promotional language, no throat-clearing, no hedging. Full

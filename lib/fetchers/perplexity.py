@@ -2,9 +2,15 @@
 """Perplexity research batch: 7 topics -> 7 immutable sources with cited_urls.
 
 Opt-in supplement (contracts amendment 3): the primary prefetch web research runs
-on the built-in deep-research Workflow over the same `prompts/prefetch_research/`
-topic prompts, so this fetcher is excluded from `sra.DEFAULT_KINDS` and only runs
+as seven `sra-researcher` subagents over the same `prompts/prefetch_research/`
+topic prompts (§11.2 — the harness deep-research Workflow this once deferred to
+is retired), so this fetcher is excluded from `sra.DEFAULT_KINDS` and only runs
 via `--kinds perplexity`.
+
+Those topic prompts are now written FOR an agent: seed queries, a search ceiling,
+and instructions to read `structured/`. Perplexity gets the same files and
+ignores the parts it cannot act on, which costs nothing and keeps one topic
+definition rather than two that drift apart.
 """
 from __future__ import annotations
 

@@ -1,33 +1,35 @@
-Research and write a comprehensive summary of major recent developments for {company} (ticker: {symbol}) since 2024.
+# Topic: recent developments — {company} ({symbol})
 
-Use web search to find the latest information. For each item include the date, a concise headline, 2-3 sentences of detail, and market impact if known.
+Read `prompts/prefetch_research/_shared.md` first; its search budget and its
+"numbers are not your job" rule apply here.
 
-Cover three areas with a ## heading for each:
+The earnings numbers themselves are already in `structured/` and in the filings.
+What you are after is the **narrative and the dates** — what happened, when, and
+how it was received — with a URL for each.
 
-## Recent Developments
-- Quarterly earnings results (beats, misses, guidance changes)
-- Revenue trends and segment performance
-- Major product launches, platform updates, or service expansions
-- M&A activity (acquisitions, divestitures, mergers, joint ventures)
-- Restructurings, layoffs, or organizational changes
-- Leadership changes (CEO, CFO, board members)
-- Capital markets activity (debt issuance, share buybacks, dividends)
+## Seed queries
 
-## Regulatory & Legal
-- SEC investigations or enforcement actions
-- Major lawsuits (filed, settled, or dismissed)
-- Regulatory approvals or denials
-- Short-seller reports or fraud allegations
-- Insider trading patterns or notable insider transactions
-- Government contracts or policy changes affecting the company
-- Compliance failures, fines, or consent decrees
+Run these, adjusting only the year where a query obviously needs the current one:
 
-## Strategic & Competitive
-- Strategic partnerships and alliances
-- Analyst upgrades, downgrades, and price target changes
-- Institutional ownership changes (major buyers/sellers)
-- Competitive dynamics (market share shifts, new entrants, competitor moves)
-- International expansion or market entry/exit
-- Technology investments, patents, or R&D breakthroughs
+1. `{company} earnings results guidance` — the last four quarters
+2. `{company} acquisition OR merger OR divestiture`
+3. `{company} layoffs OR restructuring OR reorganization`
+4. `{company} CEO OR CFO appointment OR departure`
+5. `{company} lawsuit OR SEC investigation OR settlement`
+6. `{company} partnership OR alliance announcement`
+7. `{company} analyst upgrade downgrade price target`
+8. `{company} short seller OR accounting concerns`
 
-Order chronologically from most recent within each section.
+## What to extract
+
+One dated line per development, newest first, grouped under three headings —
+`## Recent Developments`, `## Regulatory & Legal`, `## Strategic & Competitive`.
+
+For each: the date, what happened in one or two sentences, and the market
+reaction if a source states it. Skip items with no date you can source.
+
+Prefer the 8-K or the company release over the outlet that covered it, and put
+both URLs in `## Sources` when the coverage adds something.
+
+Anything material you find but cannot date, list under `[GAP]` rather than
+guessing.

@@ -1,14 +1,21 @@
 ---
 name: sra-prefetch
-description: Cold-start a ticker's evidence base — deterministic provider gather, shared macro gather, seven deep-research topics, then URL harvest and validation. Use when asked to prefetch or gather data for a ticker, to refresh stale bronze, or as the first phase of a build.
+description: Cold-start a ticker's evidence base — deterministic provider gather, shared macro gather, seven budgeted research topics, then URL harvest and validation. Use when asked to prefetch or gather data for a ticker, to refresh stale bronze, or as the first phase of a build.
 ---
 
-# sra-prefetch — deterministic gather + deep research + harvest (§11)
+# sra-prefetch — deterministic gather + topic research + harvest (§11)
 
 Everything mechanical is one `sra.py prefetch` call: the driver owns the fetcher
 registry, the dependency waves, the freshness policies and the state commits.
 The model work here is exactly seven web-research topics, and then getting their
 URLs into bronze.
+
+**Seven subagents. Not seventy, not seven hundred.** This phase used to dispatch
+the harness `deep-research` Workflow once per topic, and the TOST build measured
+what that cost: **728 subagents, 20.65M input tokens, 34 minutes — 93% of the
+entire run**, to produce 202 URLs, of which the harvest then kept 126. The
+Workflow is harness-owned, so no budget, model or effort could be imposed on it.
+It is retired here (§11.2) and must not come back.
 
 ## Usage
 
@@ -51,7 +58,7 @@ uv run python sra.py prefetch-macro --stale-only
 A dead series is a warning and exits 0 by design — macro is context for every
 ticker, and one broken series must not block a build (§12.3).
 
-## Step 3 — The seven deep-research topics
+## Step 3 — The seven research topics
 
 Topics, one per prompt file in `prompts/prefetch_research/`:
 
@@ -72,73 +79,43 @@ print(state.get("company_name") or state["ticker"])
 PY
 ```
 
-**Preferred path — the harness `deep-research` Workflow, once per topic:**
+**Dispatch seven `sra-researcher` subagents, all in ONE message** — one per
+topic, so they run concurrently. There is no other path; the `deep-research`
+Workflow is retired.
 
-```javascript
-Workflow({ name: "deep-research", args: <topic prompt + ticker context> })
-```
+Give each agent:
 
-Append to every topic prompt: the ticker and company name, today's date, and this
-instruction — *return the research body in markdown, and end with a
-`## Sources` list of every URL you used, one per line.* You need those URLs; a
-finding whose URL never reaches `cited_urls` never becomes bronze and cannot be
-cited by anything downstream.
+- the two prompt files to read — `prompts/prefetch_research/_shared.md` (the
+  budget and the citation contract) and `prompts/prefetch_research/<topic>.md`
+  (the seed queries), with `{company}` and `{symbol}` substituted;
+- the absolute ticker directory and the repo root;
+- the answer id it must use verbatim: `<TODAY>_prefetch_<topic>`;
+- its `{log_path}`: `reports/<RUN>/log/<NN>_deep-research_<topic>.md`.
 
-**Fallback — if `deep-research` is unavailable**, dispatch one `sra-researcher`
-subagent per topic instead, all seven in a single message. Give each the topic
-prompt, the ticker directory, the repo root, and the answer id
-`<TODAY>_prefetch_<topic>`; the agent writes its own answer file and you skip
-Step 4 for it. This is the same work with a smaller research budget, not a
-degraded mode to apologize for.
+Each agent writes its own answer file under `derived/answers/` and its own task
+log. You write neither — which is the point: relaying seven full research bodies
+through your context was itself a cost, and the answer is not evidence anyway.
 
-**Task logs (§23.4).** The `deep-research` workflow is the harness's, not ours,
-so no contract can be injected into it — **you** write those seven logs, one per
-topic, from what the workflow returned:
-`reports/<RUN>/log/<NN>_deep-research_<topic>.md`, frontmatter
-`purpose: deep-research`, `section: <topic>`, `round: 0`,
-`label: "deep-research:<topic>"`, `started_at`/`finished_at` from before and
-after the call, `status`, `outputs`. Record the URLs the topic returned under
-`## Fetches` and which of them survived `fetch-urls` under `## Notes` — the
-URL harvest is where prefetch actually loses evidence, and nothing else records
-it. On the fallback path the `sra-researcher` agents write their own logs; give
-each its `{log_path}` and the same frontmatter.
+**Do not raise the budget.** `_shared.md` caps each topic at 14 searches and
+8–12 page reads, and tells the agent to take every figure from `structured/` and
+the filings rather than re-verifying it on the web. That last rule is where the
+old cost lived: the numbers are already gathered deterministically, and
+adversarially re-checking them against the web bought nothing. If a topic comes
+back thin, the fix is a better seed query in its prompt file, or a question in
+the ledger for `/sra-research` to pick up — not a bigger budget here.
 
-## Step 4 — Write each Workflow result as an answer (Bash)
+`sra-researcher` runs at `effort: medium` from its own frontmatter (§21.1). The
+Agent tool takes no effort parameter, so that frontmatter is the only dial; do
+not try to pass one.
 
-A Workflow returns text to you, so you write the answer file — the researcher
-agent does this itself and needs nothing here. Write the body to
-`/tmp/<TODAY>_prefetch_<topic>.md`, then, from the repo root:
+**Task logs (§23.4).** The agents write their own, so give each its `{log_path}`
+and require the standard frontmatter — `purpose: deep-research`,
+`section: <topic>`, `round: 0`, `label: "deep-research:<topic>"`,
+`started_at`/`finished_at`, `status`, `outputs`. After Step 4, append to each
+log which of its URLs survived the harvest: that is the one place harvest loss
+is recorded, and it is the number to watch.
 
-```python
-from datetime import date, datetime, timezone
-from pathlib import Path
-
-from lib.provenance import SourceMeta, write_answer
-
-body = Path("/tmp/<TODAY>_prefetch_<TOPIC>.md").read_text(encoding="utf-8")
-now = datetime.now(timezone.utc)
-print(write_answer(Path("data/<TICKER>"), SourceMeta(
-    id="<TODAY>_prefetch_<TOPIC>",
-    ticker="<TICKER>",
-    kind="research_answer",
-    source="deep-research",
-    url="",
-    fetched_at=now.isoformat(),
-    as_of=date.today().isoformat(),
-    title="<TICKER> prefetch: <TOPIC>",
-    fetch_tool="skills/sra-prefetch",
-    fetch_cmd="",
-    cited_urls=[
-        "https://…",          # every URL from the topic's Sources list
-    ],
-), body))
-```
-
-`write_answer` puts it under `derived/answers/` and refuses to overwrite. The
-answer is **never evidence** — it is the audit record of what the topic returned,
-and its URLs are what become evidence in the next step.
-
-## Step 5 — Harvest and gate (Bash)
+## Step 4 — Harvest and gate (Bash)
 
 ```bash
 uv run python sra.py fetch-urls <TICKER>
@@ -152,6 +129,20 @@ uv run python sra.py wiki-log <TICKER> \
 `fetch-urls` runs the driver's hardened, SSRF-controlled fetcher over every
 answer's `cited_urls` and writes the URL→id maps the research synthesizer needs.
 Individual URL failures are warnings and it still exits 0 — report the count.
+
+It escalates each URL through three transports — httpx, then a headless
+browser, then Bright Data (§8.3.2) — because most harvest failures are publisher
+bot-blocking rather than dead links. Read its output, not just its exit code:
+
+- `errors` are URLs no tier could retrieve. Each claim resting on one is now
+  uncitable, so the count matters.
+- `truncated` are pages stored but cut at the character cap. A partial capture
+  is more dangerous than a failed one, because it gets cited with full
+  confidence.
+
+A body that comes back thin or reads as a bot wall is recorded as a failure
+rather than stored — a publisher's "Access denied" page in bronze under a
+plausible id is worse than an honest gap.
 
 `validate` is the fatal gate: exit 1 means a layer or provenance violation (model
 text under `sources/`, a citation resolving nowhere, a credential in an

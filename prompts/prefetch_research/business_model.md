@@ -1,38 +1,42 @@
-Research and write a detailed business model analysis for {company} (ticker: {symbol}).
+# Topic: business model — {company} ({symbol})
 
-Use web search for current financial data. Structure your analysis:
+Read `prompts/prefetch_research/_shared.md` first; its search budget and its
+"numbers are not your job" rule apply here.
 
-## 1. Revenue Streams & Mix
-- Break down revenue by business segment with exact dollar amounts and percentages from the most recent fiscal year and TTM.
-- Break down revenue by geography (domestic vs international, by major region).
-- Identify fastest-growing and declining segments.
-- Note revenue concentration risks (single customer, single product, etc.).
+**The segment tables are already gathered.** Revenue mix, geography, margins,
+working-capital lines and R&D are in `structured/` and in the 10-K's Item 7 and
+segment note. Read them; do not re-derive them and do not search to confirm
+them.
 
-## 2. Unit Economics & Margins by Segment
-- Gross margin by segment and 3-year trend.
-- Operating margin by segment with specific figures.
-- Customer acquisition cost (CAC) and lifetime value (LTV) if applicable.
-- Average revenue per user/unit/contract.
-- Working capital dynamics: DSO, inventory turns, payables.
+What the filings do not give you is *why the model works and whether it keeps
+working* — unit economics as practitioners describe them, the moat's condition,
+and what the company depends on. That is what to search for.
 
-## 3. Competitive Moat & Barriers to Entry
-- Identify and assess durability of each competitive advantage: network effects, switching costs, cost advantages, intangible assets, efficient scale.
-- Quantify the moat where possible (patent portfolio, brand value, retention rates).
-- Assess how the moat has changed over 5 years — strengthening or eroding?
-- Compare moat strength to top 2-3 competitors.
+## Seed queries
 
-## 4. Supply Chain & Key Dependencies
-- Critical suppliers and single-source dependencies.
-- Vertical integration strategy — in-house vs outsourced.
-- Geographic concentration of manufacturing or service delivery.
-- Raw material or input cost exposure and hedging.
-- Key technology or platform dependencies.
+1. `{company} business model how it makes money`
+2. `{company} unit economics OR take rate OR ARPU OR net revenue retention`
+3. `{company} competitive moat OR switching costs OR network effects`
+4. `{company} pricing strategy OR price increase`
+5. `{company} suppliers OR vendor dependency OR single source`
+6. `{company} TAM OR market size` — and who is estimating it
+7. `{company} product roadmap OR new products`
+8. `{company} customer churn OR retention OR cohort`
 
-## 5. Growth Drivers & Reinvestment Strategy
-- Capital allocation breakdown: R&D, capex, M&A, buybacks, dividends (with dollar amounts).
-- R&D spending as % of revenue vs peers.
-- Organic growth rate vs acquisition-driven growth.
-- TAM for each major segment and penetration rate.
-- Pipeline of new products, services, or markets with expected timing.
+## What to extract
 
-Cite specific data points from recent earnings reports, SEC filings, or reputable financial sources.
+Under these headings, dropping any you cannot source:
+
+- `## Revenue model` — how each stream is actually earned and priced. Cite the
+  segment figures from `structured/` by artifact id; do not restate the tables.
+- `## Unit economics` — take rate, ARPU, CAC/payback, retention. These usually
+  come from the transcript or from an industry write-up, not the 10-K.
+- `## Moat` — each advantage named, and the specific evidence it is holding or
+  eroding. Compare against the two or three closest competitors. An unevidenced
+  moat claim is worth nothing here.
+- `## Dependencies` — suppliers, platforms, single points of failure.
+- `## Growth drivers` — where the next dollar comes from, and the TAM estimate
+  with **whose** estimate it is and when it was made.
+
+Where a source and the filings disagree about the size of something, say so and
+say which you trust.

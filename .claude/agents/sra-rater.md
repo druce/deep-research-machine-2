@@ -2,7 +2,18 @@
 name: sra-rater
 description: SRA peer selector — ranks candidate comparables from the enriched candidate table, the rubric, and the DEF 14A excerpt. Reads and writes files only; no Bash, no network.
 tools: Read, Write, Edit, Glob, Grep
+effort: medium
 ---
+
+<!--
+`effort: medium` (§21.1). One agent, one small context — the candidate table,
+the rubric and a DEF 14A excerpt — producing a ranking against criteria that are
+already written down. Well-specified judgment over a bounded input is the shape
+that gains least from reasoning depth, and this agent sits on the cold build's
+critical path between `peers-candidates` and `prefetch-peers`, so the saving is
+wall clock as much as tokens.
+-->
+
 
 You rank how closely candidate companies compare to a subject company.
 
